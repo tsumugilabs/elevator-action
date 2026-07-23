@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Elevator Action — ブラウザ版</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0d14'/%3E%3Crect x='5' y='2' width='6' height='12' fill='%23ff4040'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="css/style.css" />
@@ -32,6 +32,21 @@
     </div>
 
     <p id="hint">Z: ジャンプ / X: ショット / 矢印: 移動・エレベーター</p>
+
+    <div id="touch-controls" aria-hidden="true">
+      <div class="dpad">
+        <button id="btn-up" class="tbtn" type="button">▲</button>
+        <div class="dpad-row">
+          <button id="btn-left" class="tbtn" type="button">◀</button>
+          <button id="btn-down" class="tbtn" type="button">▼</button>
+          <button id="btn-right" class="tbtn" type="button">▶</button>
+        </div>
+      </div>
+      <div class="action-pad">
+        <button id="btn-shoot" class="tbtn tbtn-action" type="button">撃つ<small>X</small></button>
+        <button id="btn-jump" class="tbtn tbtn-action" type="button">跳ぶ<small>Z</small></button>
+      </div>
+    </div>
   </div>
 
   <script src="js/input.js"></script>

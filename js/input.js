@@ -46,8 +46,52 @@
       for (var j in last) if (!(j in down)) last[j] = false;
     },
 
-    reset: function () { down = {}; last = {}; }
+    reset: function () { down = {}; last = {}; },
+
+    /**
+     * Wire on-screen touch buttons to the same action states so the game is
+     * playable on phones/tablets. Uses Pointer Events so multiple buttons
+     * (e.g. move + shoot) can be held at once.
+     */
+    bindTouch: function () {
+      var map = {
+        "btn-left": "left", "btn-right": "right",
+        "btn-up": "up", "btn-down": "down",
+        "btn-jump": "jump", "btn-shoot": "shoot"
+      };
+      Object.keys(map).forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var action = map[id];
+        var set = function (v) {
+          return function (e) {
+            e.preventDefault();
+            down[action] = v;
+            el.classList.toggle("pressed", v);
+          };
+        };
+        el.addEventListener("pointerdown", set(true));
+        el.addEventListener("pointerup", set(false));
+        el.addEventListener("pointercancel", set(false));
+        el.addEventListener("pointerleave", set(false));
+        el.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+      });
+    }
   };
 
   global.Input = Input;
+
+  // Flag coarse-pointer (touch) devices so the on-screen pad can be shown,
+  // then bind the buttons once the DOM is ready.
+  function init() {
+    var touch = ("ontouchstart" in window) ||
+      (window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    if (touch && document.body) document.body.classList.add("touch");
+    Input.bindTouch();
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
 })(window);

@@ -10,7 +10,7 @@
 
 html, body {
   margin: 0;
-  height: 100%;
+  min-height: 100%;
   background: radial-gradient(circle at 50% 0%, #1a2036 0%, var(--bg) 70%);
   color: var(--text);
   font-family: "Courier New", monospace;
@@ -18,16 +18,20 @@ html, body {
   align-items: center;
   justify-content: center;
   user-select: none;
+  overflow-x: hidden;
 }
 
 #game-wrapper {
-  width: 512px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 512px;
+  margin: 0 auto;
+  padding: 6px;
 }
 
 #hud {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 6px 14px;
   justify-content: space-between;
   padding: 8px 4px;
   font-size: 14px;
@@ -35,13 +39,18 @@ html, body {
   color: var(--muted);
 }
 
+@media (max-width: 420px) {
+  #hud { font-size: 12px; gap: 4px 10px; letter-spacing: 0; }
+}
+
 .hud-item b { color: var(--text); }
 #hud-docs, #hud-docs-total { color: var(--accent); }
 
 #stage {
   position: relative;
-  width: 512px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 512px;
+  margin: 0 auto;
 }
 
 canvas#game {
@@ -124,4 +133,83 @@ button:active { transform: translateY(0); }
   color: var(--muted);
   font-size: 12px;
   margin: 10px 0 0;
+}
+
+/* ---- Touch controls ---------------------------------------------------- */
+/* Hidden by default; the `touch` body class (set from JS on coarse-pointer
+   devices) reveals them. */
+#touch-controls { display: none; }
+
+body.touch #touch-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+  touch-action: none;
+}
+
+body.touch #hint { display: none; }
+
+.dpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.dpad-row { display: flex; gap: 6px; }
+
+.action-pad {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.tbtn {
+  width: 58px;
+  height: 58px;
+  padding: 0;                 /* reset the shared button padding */
+  font-size: 20px;
+  color: var(--text);
+  background: #1b2138;
+  border: 1px solid #3a456a;
+  border-radius: 12px;
+  box-shadow: 0 2px 0 #0a0e1a;
+  letter-spacing: normal;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.1;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+
+.tbtn-action {
+  width: 72px;
+  height: 72px;
+  font-size: 16px;
+  background: var(--accent);
+  color: #05070d;
+  box-shadow: 0 3px 0 #7a1414;
+}
+
+.tbtn small {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.tbtn.pressed {
+  transform: translateY(2px);
+  box-shadow: 0 0 0 #0a0e1a;
+  filter: brightness(1.2);
+}
+
+@media (max-width: 380px) {
+  .tbtn { width: 50px; height: 50px; font-size: 18px; }
+  .tbtn-action { width: 62px; height: 62px; font-size: 14px; }
+  body.touch #touch-controls { gap: 6px; }
 }
