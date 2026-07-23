@@ -115,14 +115,13 @@
     var level = game.level;
     var player = game.player;
 
-    // Remember elevator positions before they move, to carry a rider.
     level.update();
-    carryOnElevators(player);
-    for (var e = 0; e < game.enemies.length; e++) carryOnElevators(game.enemies[e]);
 
-    var solids = level.solids();
+    // Collide only against static geometry; elevators are handled separately
+    // as ride-on-top platforms so a rider can never be shoved sideways.
+    var solids = level.staticSolids;
     player.update(Input, solids, game.bullets);
-    checkCrush(player);
+    if (rideElevators(player, true)) return;   // returns true if crushed → died
 
     // Doors: collect docs on contact; enemy doors start a telegraph instead
     // of spawning instantly, so the player gets a warning first.
@@ -163,6 +162,7 @@
 
     for (var en = 0; en < game.enemies.length; en++) {
       game.enemies[en].update(player, solids, game.bullets);
+      rideElevators(game.enemies[en], false);
     }
 
     updateBullets();
@@ -207,32 +207,39 @@
     armDoor(pool[Math.floor(Math.random() * pool.length)], false);
   }
 
-  /** If an actor rests on an elevator, move it by the elevator's delta. */
-  function carryOnElevators(ent) {
+  /**
+   * Elevator interaction as a one-way "ride on top" platform.
+   * Elevators are NOT part of the generic solid list, so they can never eject
+   * a rider horizontally (that was the teleport bug). Standing on top snaps the
+   * actor to the platform each frame, which also carries them as it moves.
+   * Returns true if the player was crushed (from an elevator pressing down
+   * onto them while they're grounded).
+   */
+  function rideElevators(ent, isPlayer) {
     for (var i = 0; i < game.level.elevators.length; i++) {
       var el = game.level.elevators[i];
-      var onTop = ent.x + ent.w > el.x && ent.x < el.x + el.w &&
-                  Math.abs((ent.y + ent.h) - el.y) < 4;
-      if (onTop) {
-        ent.y += (el.y - el.prevY);
-        break;
-      }
-    }
-  }
+      var horiz = ent.x + ent.w > el.x + 1 && ent.x < el.x + el.w - 1;
+      if (!horiz) continue;
 
-  /** Kill the player if an ascending elevator pins them against a slab. */
-  function checkCrush(player) {
-    for (var i = 0; i < game.level.elevators.length; i++) {
-      var el = game.level.elevators[i];
-      var pinned = el.vy < 0 &&
-        player.x + player.w > el.x && player.x < el.x + el.w &&
-        el.y < player.y + player.h && el.y > player.y &&   // elevator inside body
-        player.onGround === false && player.vy === 0;
-      if (pinned && player.invuln === 0) {
+      var feet = ent.y + ent.h;
+      // Landing on / riding the top: feet near the platform surface, descending.
+      if (ent.vy >= 0 && feet >= el.y - 2 && feet <= el.y + el.h) {
+        ent.y = el.y - ent.h;
+        ent.vy = 0;
+        ent.onGround = true;
+        continue;                       // riding this one; it won't also crush us
+      }
+
+      // Crush: elevator bearing down from above while the actor is grounded.
+      var elBottom = el.y + el.h;
+      var pinned = el.y <= ent.y + 4 && elBottom > ent.y + 4 &&
+                   ent.onGround && el.vy >= 0;
+      if (isPlayer && pinned && ent.invuln === 0) {
         loseLife();
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   function updateBullets() {

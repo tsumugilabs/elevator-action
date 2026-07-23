@@ -200,30 +200,46 @@
     this.patrol = 30 + Math.floor(Math.random() * 45);
     this.animT = Math.floor(Math.random() * 20);
     this.muzzle = 0;
+    // Behavior blend: alternates between chasing the player and wandering, so
+    // movement isn't rigidly tied to the player's every step.
+    this.mode = Math.random() < 0.5 ? "chase" : "wander";
+    this.modeTimer = 0;
+    this.moveDir = Math.random() < 0.5 ? -1 : 1;
   }
   Enemy.prototype.update = function (player, solids, bullets) {
-    // Face and drift toward the player, bounded to a patrol range.
-    this.dir = player.x + player.w / 2 < this.x + this.w / 2 ? -1 : 1;
-    var target = this.x + this.dir * this.speed;
-    if (Math.abs(target - this.homeX) <= this.patrol) {
-      this.vx = this.dir * this.speed;
-    } else {
-      this.vx = 0;
+    // Periodically re-roll behavior: ~50% chase, ~50% wander.
+    if (--this.modeTimer <= 0) {
+      this.mode = Math.random() < 0.5 ? "chase" : "wander";
+      this.modeTimer = 45 + Math.floor(Math.random() * 90);   // 0.75–2.25s
+      if (this.mode === "wander" && Math.random() < 0.5) this.moveDir = -this.moveDir;
     }
+
+    if (this.mode === "chase") {
+      this.moveDir = player.x + player.w / 2 < this.x + this.w / 2 ? -1 : 1;
+    }
+    // Turn back at the patrol bounds so it lingers near its door either way.
+    if (this.x + this.moveDir * this.speed < this.homeX - this.patrol) this.moveDir = 1;
+    if (this.x + this.moveDir * this.speed > this.homeX + this.patrol) this.moveDir = -1;
+
+    this.vx = this.moveDir * this.speed;
+    this.dir = this.moveDir;                 // face the way it's moving
 
     applyGravity(this);
     moveAndCollide(this, solids);
     this.animT++;
     if (this.muzzle > 0) this.muzzle--;
 
-    // Shoot when roughly on the same floor band as the player.
+    // Shoot toward the player when roughly on the same floor band (it can still
+    // fire even while wandering the other way).
     if (this.shootCd > 0) this.shootCd--;
     var sameRow = Math.abs((this.y + this.h) - (player.y + player.h)) < 24;
     if (this.shootCd === 0 && sameRow) {
+      var aim = player.x + player.w / 2 < this.x + this.w / 2 ? -1 : 1;
       var by = this.y + 12;
-      var bx = this.dir > 0 ? this.x + this.w : this.x - 6;
-      bullets.push(new Bullet(bx, by, this.dir, false));
+      var bx = aim > 0 ? this.x + this.w : this.x - 6;
+      bullets.push(new Bullet(bx, by, aim, false));
       this.muzzle = 5;
+      this.dir = aim;                        // face the player as it fires
       this.shootCd = 70 + Math.floor(Math.random() * 50);
     }
   };
