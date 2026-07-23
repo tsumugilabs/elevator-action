@@ -51,6 +51,7 @@
     game.state = STATE.PLAY;
     overlay.classList.add("hidden");
     hud.docsTotal.textContent = game.level.totalDocs;
+    if (global.Sound) { global.Sound.resume(); global.Sound.startMusic(); }
     syncHud();
   }
 
@@ -69,6 +70,7 @@
       endGame(false);
     } else {
       flash("MISS");
+      if (global.Sound) global.Sound.play("miss");
       game.state = STATE.DEAD;
       game.deadTimer = 60;
     }
@@ -79,6 +81,10 @@
     if (game.score > game.hi) {
       game.hi = game.score;
       localStorage.setItem("ea_hi", String(game.hi));
+    }
+    if (global.Sound) {
+      global.Sound.stopMusic();
+      global.Sound.play(won ? "win" : "over");
     }
     showOverlay(won);
   }
@@ -124,11 +130,13 @@
         game.docs++;
         addScore(500);
         flash("DOCUMENT!");
+        if (global.Sound) global.Sound.play("pickup");
         syncHud();
       } else if (door.kind === "enemy" && !door.spawned && !door.arming) {
         door.arming = true;
         door.warning = door.warnMax;
         flash("CAUTION!");
+        if (global.Sound) global.Sound.play("caution");
       }
     }
 
@@ -220,6 +228,7 @@
             foe.dead = true;
             bl.dead = true;
             addScore(300);
+            if (global.Sound) global.Sound.play("explode");
             break;
           }
         }
@@ -313,6 +322,20 @@
   startBtn.addEventListener("click", startGame);
   window.addEventListener("keydown", function (e) {
     if (e.code === "Enter" && game.state !== STATE.PLAY) startGame();
+    if (e.code === "KeyM") toggleSound();
+  });
+
+  // Sound on/off toggle (button + M key).
+  var soundBtn = document.getElementById("sound-toggle");
+  function toggleSound() {
+    if (!global.Sound) return;
+    var next = !global.Sound.isMuted();
+    global.Sound.setMuted(next);
+    if (soundBtn) soundBtn.textContent = next ? "🔇" : "🔊";
+  }
+  if (soundBtn) soundBtn.addEventListener("click", function () {
+    global.Sound && global.Sound.resume();
+    toggleSound();
   });
 
   // Seed HUD totals so the menu isn't blank.

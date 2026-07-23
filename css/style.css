@@ -46,6 +46,21 @@ html, body {
 .hud-item b { color: var(--text); }
 #hud-docs, #hud-docs-total { color: var(--accent); }
 
+#sound-toggle {
+  padding: 0;
+  width: 30px;
+  height: 24px;
+  font-size: 15px;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid #3a456a;
+  border-radius: 6px;
+  box-shadow: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+#sound-toggle:hover { transform: none; background: #1b2138; }
+
 #stage {
   position: relative;
   width: 100%;

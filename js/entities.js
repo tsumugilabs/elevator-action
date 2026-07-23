@@ -108,6 +108,7 @@
 
     if (input.pressed("jump") && this.onGround && !this.crouching) {
       this.vy = -JUMP;
+      if (global.Sound) global.Sound.play("jump");
     }
 
     applyGravity(this);
@@ -119,6 +120,7 @@
       var bx = this.dir > 0 ? this.x + this.w : this.x - 6;
       bullets.push(new Bullet(bx, by, this.dir, true));
       this.shootCd = 12;
+      if (global.Sound) global.Sound.play("shoot");
     }
 
     if (this.invuln > 0) this.invuln--;
