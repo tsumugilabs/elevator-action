@@ -15,6 +15,15 @@
            a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
+  /** True if point (px, py) sits inside any solid — used for ledge detection. */
+  function groundBelow(solids, px, py) {
+    for (var i = 0; i < solids.length; i++) {
+      var s = solids[i];
+      if (px >= s.x && px < s.x + s.w && py >= s.y && py < s.y + s.h) return true;
+    }
+    return false;
+  }
+
   /**
    * Move an entity by its velocity, resolving collisions against a list of
    * solid rectangles one axis at a time. Sets `onGround` and `groundRef`
@@ -202,14 +211,19 @@
     this.muzzle = 0;
     // Behavior blend: alternates between chasing the player and wandering, so
     // movement isn't rigidly tied to the player's every step.
-    this.mode = Math.random() < 0.5 ? "chase" : "wander";
+    this.mode = "wander";
     this.modeTimer = 0;
     this.moveDir = Math.random() < 0.5 ? -1 : 1;
+    // Per-stage capabilities (defaults = hardest stage; overridden on spawn).
+    this.canChase = true;   // follow the player vs pure wander
+    this.canShoot = true;   // may fire bullets
+    this.canFall = true;    // may leave its floor (drop through gaps / ride)
   }
   Enemy.prototype.update = function (player, solids, bullets) {
-    // Periodically re-roll behavior: ~50% chase, ~50% wander.
+    // Periodically re-roll behavior: ~50% chase, ~50% wander (chase only if
+    // this stage allows following; otherwise always wander).
     if (--this.modeTimer <= 0) {
-      this.mode = Math.random() < 0.5 ? "chase" : "wander";
+      this.mode = this.canChase && Math.random() < 0.5 ? "chase" : "wander";
       this.modeTimer = 45 + Math.floor(Math.random() * 90);   // 0.75–2.25s
       if (this.mode === "wander" && Math.random() < 0.5) this.moveDir = -this.moveDir;
     }
@@ -220,6 +234,12 @@
     // Turn back at the patrol bounds so it lingers near its door either way.
     if (this.x + this.moveDir * this.speed < this.homeX - this.patrol) this.moveDir = 1;
     if (this.x + this.moveDir * this.speed > this.homeX + this.patrol) this.moveDir = -1;
+
+    // Floor-bound enemies turn around at ledges so they never fall into shafts.
+    if (!this.canFall && this.onGround) {
+      var leadX = this.moveDir > 0 ? this.x + this.w + 1 : this.x - 1;
+      if (!groundBelow(solids, leadX, this.y + this.h + 3)) this.moveDir = -this.moveDir;
+    }
 
     this.vx = this.moveDir * this.speed;
     this.dir = this.moveDir;                 // face the way it's moving
@@ -233,7 +253,7 @@
     // fire even while wandering the other way).
     if (this.shootCd > 0) this.shootCd--;
     var sameRow = Math.abs((this.y + this.h) - (player.y + player.h)) < 24;
-    if (this.shootCd === 0 && sameRow) {
+    if (this.canShoot && this.shootCd === 0 && sameRow) {
       var aim = player.x + player.w / 2 < this.x + this.w / 2 ? -1 : 1;
       var by = this.y + 12;
       var bx = aim > 0 ? this.x + this.w : this.x - 6;

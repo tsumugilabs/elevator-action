@@ -114,11 +114,12 @@
     }
   };
 
-  function Level() {
+  function Level(docCount) {
     this.width = WIDTH;
     this.height = WORLD_H;
     this.floorH = FLOOR_H;
     this.numFloors = NUM_FLOORS;
+    this.docCount = docCount || 8;
     this.elevators = SHAFTS.map(function (sx) { return new Elevator(sx); });
     this.doors = [];
     this.staticSolids = [];
@@ -163,7 +164,7 @@
     }
     shuffle(slots);
 
-    var DOC_COUNT = 8;                 // documents to collect
+    var DOC_COUNT = this.docCount;     // documents to collect (per stage)
     var ENEMY_COUNT = 5;               // contact-triggered ambush doors
     for (var i = 0; i < slots.length; i++) {
       var kind = i < DOC_COUNT ? "doc"

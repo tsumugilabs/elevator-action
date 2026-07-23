@@ -20,10 +20,24 @@
     hi: document.getElementById("hud-hi"),
     docs: document.getElementById("hud-docs"),
     docsTotal: document.getElementById("hud-docs-total"),
-    lives: document.getElementById("hud-lives")
+    lives: document.getElementById("hud-lives"),
+    stage: document.getElementById("hud-stage")
   };
 
-  var STATE = { MENU: 0, PLAY: 1, DEAD: 2, WIN: 3, OVER: 4 };
+  var STATE = { MENU: 0, PLAY: 1, DEAD: 2, WIN: 3, OVER: 4, STAGECLEAR: 5 };
+
+  // Per-stage difficulty. `shooters`: how many enemies may fire —
+  // 0 none, "lowest1" one agent spawned on the lowest floor, N a numeric cap,
+  // Infinity everyone. `fall`: enemies may leave their floor (drop/ride).
+  var STAGES = [
+    { name: "TUTORIAL",   docs: 3, maxEnemies: 1, chase: false, shooters: 0,        fall: false },
+    { name: "BEGINNER",   docs: 4, maxEnemies: 2, chase: false, shooters: 0,        fall: false },
+    { name: "EASY",       docs: 5, maxEnemies: 3, chase: true,  shooters: 0,        fall: false },
+    { name: "NORMAL",     docs: 6, maxEnemies: 3, chase: true,  shooters: "lowest1", fall: true },
+    { name: "HARD",       docs: 7, maxEnemies: 4, chase: true,  shooters: 2,        fall: true },
+    { name: "EXPERT",     docs: 8, maxEnemies: 5, chase: true,  shooters: Infinity, fall: true }
+  ];
+  var LAST_STAGE = STAGES.length - 1;
 
   var game = {
     state: STATE.MENU,
@@ -36,26 +50,38 @@
     hi: Number(localStorage.getItem("ea_hi") || 0),
     lives: 3,
     docs: 0,
+    stage: 0,
     msg: "",
     msgTimer: 0,
     spawnTimer: 0        // spawn-director countdown
   };
 
-  var MAX_ENEMIES = 5;   // concurrent enemy cap
+  function cfg() { return STAGES[game.stage]; }
 
+  // Start a fresh run at stage 1.
   function startGame() {
-    game.level = new global.Level();
+    game.score = 0;
+    game.lives = 3;
+    game.stage = 0;
+    if (global.Sound) global.Sound.resume();
+    loadStage();
+  }
+
+  // Build the current stage (keeps score/lives) and begin play.
+  function loadStage() {
+    var c = cfg();
+    game.level = new global.Level(c.docs);
     game.player = new Entities.Player(game.level.playerStart.x, game.level.playerStart.y);
     game.enemies = [];
     game.bullets = [];
-    game.score = 0;
-    game.lives = 3;
     game.docs = 0;
+    game.camY = 0;
     game.state = STATE.PLAY;
-    game.spawnTimer = 300;                 // first director spawn ~5s in
+    game.spawnTimer = 240;                  // first director spawn ~4s in
     overlay.classList.add("hidden");
     hud.docsTotal.textContent = game.level.totalDocs;
-    if (global.Sound) { global.Sound.resume(); global.Sound.startMusic(); }
+    flash("STAGE " + (game.stage + 1) + " — " + c.name);
+    if (global.Sound) global.Sound.startMusic();
     syncHud();
   }
 
@@ -78,6 +104,31 @@
       game.state = STATE.DEAD;
       game.deadTimer = 60;
     }
+  }
+
+  // Cleared the exit: advance to the next stage, or win the whole game.
+  function clearStage() {
+    addScore(2000 + game.lives * 500);
+    if (game.stage >= LAST_STAGE) {
+      endGame(true);
+      return;
+    }
+    game.state = STATE.STAGECLEAR;
+    if (game.score > game.hi) { game.hi = game.score; localStorage.setItem("ea_hi", String(game.hi)); }
+    if (global.Sound) { global.Sound.stopMusic(); global.Sound.play("win"); }
+    syncHud();
+    overlay.classList.remove("hidden");
+    overlay.innerHTML =
+      '<h1>STAGE ' + (game.stage + 1) + ' CLEAR</h1>' +
+      '<p class="subtitle">SCORE ' + game.score + '<br>NEXT: STAGE ' + (game.stage + 2) +
+      ' — ' + STAGES[game.stage + 1].name + '</p>' +
+      '<button id="next-btn">NEXT STAGE</button>';
+    document.getElementById("next-btn").addEventListener("click", nextStage);
+  }
+
+  function nextStage() {
+    game.stage++;
+    loadStage();
   }
 
   function endGame(won) {
@@ -135,7 +186,8 @@
         flash("DOCUMENT!");
         if (global.Sound) global.Sound.play("pickup");
         syncHud();
-      } else if (door.kind === "enemy" && !door.spawned && !door.arming) {
+      } else if (door.kind === "enemy" && !door.spawned && !door.arming &&
+                 activeThreat() < cfg().maxEnemies) {
         door.spawned = true;              // ambush door: one-shot on contact
         armDoor(door, true);
       }
@@ -155,24 +207,23 @@
         ad.warning--;
         if (ad.warning <= 0) {
           ad.arming = false;
-          game.enemies.push(new Entities.Enemy(ad.x + 4, ad.y + 12));
+          spawnEnemyFromDoor(ad);
         }
       }
     }
 
     for (var en = 0; en < game.enemies.length; en++) {
       game.enemies[en].update(player, solids, game.bullets);
-      rideElevators(game.enemies[en], false);
+      if (game.enemies[en].canFall) rideElevators(game.enemies[en], false);
     }
 
     updateBullets();
     resolveHits();
 
-    // Reached the exit with every document → victory.
+    // Reached the exit with every document → clear the stage.
     if (game.docs >= level.totalDocs &&
         Entities.overlaps(player.hurtBox(), level.exitZone)) {
-      addScore(3000 + game.lives * 1000);
-      endGame(true);
+      clearStage();
       return;
     }
 
@@ -181,6 +232,36 @@
 
     updateCamera();
     syncHud();
+  }
+
+  /** Live threats = agents already out + doors mid-telegraph (both count). */
+  function activeThreat() {
+    var n = game.enemies.length;
+    for (var i = 0; i < game.level.doors.length; i++) if (game.level.doors[i].arming) n++;
+    return n;
+  }
+
+  /** How many agents are currently allowed to fire, per stage rules. */
+  function currentShooters() {
+    var n = 0;
+    for (var i = 0; i < game.enemies.length; i++) if (game.enemies[i].canShoot) n++;
+    return n;
+  }
+
+  /** Spawn an agent from a door and stamp it with this stage's capabilities. */
+  function spawnEnemyFromDoor(door) {
+    var c = cfg();
+    var e = new Entities.Enemy(door.x + 4, door.y + 12);
+    e.canChase = c.chase;
+    e.canFall = c.fall;
+    if (c.shooters === Infinity) e.canShoot = true;
+    else if (c.shooters === 0) e.canShoot = false;
+    else if (c.shooters === "lowest1") {
+      e.canShoot = door.floor === game.level.numFloors - 1 && currentShooters() < 1;
+    } else {
+      e.canShoot = currentShooters() < c.shooters;
+    }
+    game.enemies.push(e);
   }
 
   /** Begin an enemy door's telegraph (blinking warning) before it spawns. */
@@ -193,7 +274,7 @@
 
   /** Pick a random non-objective door on-screen and have it spawn an agent. */
   function directorSpawn(level, player) {
-    if (game.enemies.length >= MAX_ENEMIES) return;
+    if (activeThreat() >= cfg().maxEnemies) return;
     var top = game.camY - 24, bot = game.camY + C.VIEW_H + 24;
     var pool = [];
     for (var i = 0; i < level.doors.length; i++) {
@@ -336,6 +417,7 @@
     hud.hi.textContent = game.hi;
     hud.docs.textContent = game.docs;
     hud.lives.textContent = Math.max(0, game.lives);
+    if (hud.stage) hud.stage.textContent = game.stage + 1;
   }
 
   function showOverlay(won) {
@@ -360,7 +442,10 @@
 
   startBtn.addEventListener("click", startGame);
   window.addEventListener("keydown", function (e) {
-    if (e.code === "Enter" && game.state !== STATE.PLAY) startGame();
+    if (e.code === "Enter") {
+      if (game.state === STATE.STAGECLEAR) nextStage();
+      else if (game.state !== STATE.PLAY) startGame();
+    }
     if (e.code === "KeyM") toggleSound();
   });
 
