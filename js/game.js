@@ -114,7 +114,8 @@
     player.update(Input, solids, game.bullets);
     checkCrush(player);
 
-    // Doors: collect docs / spawn enemies on contact.
+    // Doors: collect docs on contact; enemy doors start a telegraph instead
+    // of spawning instantly, so the player gets a warning first.
     for (var d = 0; d < level.doors.length; d++) {
       var door = level.doors[d];
       if (!Entities.overlaps(player.hurtBox(), door.rect())) continue;
@@ -124,9 +125,23 @@
         addScore(500);
         flash("DOCUMENT!");
         syncHud();
-      } else if (door.kind === "enemy" && !door.spawned) {
-        door.spawned = true;
-        game.enemies.push(new Entities.Enemy(door.x + 4, door.y + 12));
+      } else if (door.kind === "enemy" && !door.spawned && !door.arming) {
+        door.arming = true;
+        door.warning = door.warnMax;
+        flash("CAUTION!");
+      }
+    }
+
+    // Count down armed enemy doors; spawn the enemy when the warning ends.
+    for (var aw = 0; aw < level.doors.length; aw++) {
+      var ad = level.doors[aw];
+      if (ad.arming && !ad.spawned) {
+        ad.warning--;
+        if (ad.warning <= 0) {
+          ad.spawned = true;
+          ad.arming = false;
+          game.enemies.push(new Entities.Enemy(ad.x + 4, ad.y + 12));
+        }
       }
     }
 

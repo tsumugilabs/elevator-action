@@ -61,6 +61,9 @@
     this.kind = kind;                 // "doc" | "enemy" | "plain"
     this.collected = false;
     this.spawned = false;
+    this.arming = false;              // enemy door: telegraphing a spawn
+    this.warning = 0;                 // frames left until the enemy emerges
+    this.warnMax = 150;               // ~2.5s telegraph at 60fps
   }
   Door.prototype.rect = function () {
     return { x: this.x, y: this.y, w: this.w, h: this.h };
@@ -78,6 +81,33 @@
     if (this.kind === "doc" && !this.collected) {
       ctx.fillStyle = "#fff";
       ctx.fillRect(this.x + this.w / 2 - 3, this.y + 10, 6, 4);
+    }
+
+    // Enemy telegraph: pulsing outline + a warning sign above the door,
+    // blinking faster as the spawn approaches.
+    if (this.kind === "enemy" && this.warning > 0 && !this.spawned) {
+      var ratio = this.warning / this.warnMax;      // 1 -> 0
+      var blink = ratio > 0.35 ? 12 : 6;            // speeds up near the end
+      var on = Math.floor(this.warning / blink) % 2 === 0;
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = on ? "#ff8a3a" : "#7a3a12";
+      ctx.strokeRect(this.x - 1, this.y - 1, this.w + 2, this.h + 2);
+
+      if (on) {
+        var cx = this.x + this.w / 2;
+        var by = this.y - 20;
+        ctx.fillStyle = "#ff9a2e";                  // warning triangle
+        ctx.beginPath();
+        ctx.moveTo(cx, by - 4);
+        ctx.lineTo(cx + 8, by + 9);
+        ctx.lineTo(cx - 8, by + 9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#1a0e00";                  // exclamation mark
+        ctx.fillRect(cx - 1, by + 1, 2, 5);
+        ctx.fillRect(cx - 1, by + 7, 2, 2);
+      }
     }
   };
 
