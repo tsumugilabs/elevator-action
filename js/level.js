@@ -32,7 +32,9 @@
     this.h = 12;
     this.x = shaftX + 4;
     this.minY = FLOOR_H - SLAB_H - this.h + 2;
-    this.maxY = surfaceY(NUM_FLOORS - 1) - this.h;
+    // Descend all the way to the basement floor so a player who drops down to
+    // the exit can always ride back up (otherwise they'd be soft-locked).
+    this.maxY = WORLD_H - SLAB_H - this.h;
     this.y = this.minY + Math.random() * (this.maxY - this.minY);
     this.vy = (Math.random() < 0.5 ? -1 : 1) * 1.2;
     this.prevY = this.y;
@@ -200,12 +202,13 @@
     ctx.fillStyle = "#0c1830";
     ctx.fillRect(0, NUM_FLOORS * FLOOR_H, WIDTH, EXIT_H);
 
-    // Elevator shafts.
+    // Elevator shafts (extend through the basement so the run is coherent).
+    var shaftH = WORLD_H - SLAB_H;
     ctx.fillStyle = "rgba(255,255,255,0.03)";
     for (var s = 0; s < SHAFTS.length; s++) {
-      ctx.fillRect(SHAFTS[s], 0, SHAFT_W, NUM_FLOORS * FLOOR_H);
+      ctx.fillRect(SHAFTS[s], 0, SHAFT_W, shaftH);
       ctx.strokeStyle = "rgba(120,140,190,0.25)";
-      ctx.strokeRect(SHAFTS[s] + 0.5, 0, SHAFT_W, NUM_FLOORS * FLOOR_H);
+      ctx.strokeRect(SHAFTS[s] + 0.5, 0, SHAFT_W, shaftH);
     }
 
     // Doors, then elevators (elevators draw over shaft).
