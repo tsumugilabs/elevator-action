@@ -85,9 +85,10 @@
       ctx.fillRect(this.x + this.w / 2 - 3, this.y + 10, 6, 4);
     }
 
-    // Enemy telegraph: pulsing outline + a warning sign above the door,
-    // blinking faster as the spawn approaches.
-    if (this.kind === "enemy" && this.warning > 0 && !this.spawned) {
+    // Spawn telegraph: pulsing outline + a warning sign above the door,
+    // blinking faster as the spawn approaches. Shown for any armed door
+    // (contact ambush or a director-triggered burst).
+    if (this.arming && this.warning > 0) {
       var ratio = this.warning / this.warnMax;      // 1 -> 0
       var blink = ratio > 0.35 ? 12 : 6;            // speeds up near the end
       var on = Math.floor(this.warning / blink) % 2 === 0;
@@ -142,26 +143,45 @@
     self.staticSolids.push({ x: -8, y: 0, w: 8, h: WORLD_H });
     self.staticSolids.push({ x: WIDTH, y: 0, w: 8, h: WORLD_H });
 
-    // Doors. Red (doc) doors are the objective; a few enemy doors add threat.
-    var layout = [
-      [ [70, "doc"],  [200, "enemy"], [430, "plain"] ],
-      [ [170, "doc"], [300, "plain"], [450, "enemy"] ],
-      [ [60, "enemy"],[240, "doc"],   [430, "doc"] ],
-      [ [180, "plain"],[300, "enemy"],[450, "doc"] ],
-      [ [70, "doc"],  [230, "plain"], [420, "enemy"] ],
-      [ [200, "doc"], [300, "doc"],   [450, "plain"] ]
+    // Door positions per floor stay fixed (all reachable); their ROLES are
+    // shuffled every game so the objective and threats aren't predictable.
+    var positions = [
+      [70, 200, 430],
+      [170, 300, 450],
+      [60, 240, 430],
+      [180, 300, 450],
+      [70, 230, 420],
+      [200, 300, 450]
     ];
-    for (var f = 0; f < layout.length; f++) {
-      for (var d = 0; d < layout[f].length; d++) {
-        var spec = layout[f][d];
-        self.doors.push(new Door(spec[0], f, spec[1]));
+
+    // Collect every door slot, shuffle, then deal out roles.
+    var slots = [];
+    for (var f = 0; f < positions.length; f++) {
+      for (var d = 0; d < positions[f].length; d++) {
+        slots.push({ x: positions[f][d], floor: f });
       }
     }
+    shuffle(slots);
 
-    this.totalDocs = this.doors.filter(function (dr) {
-      return dr.kind === "doc";
-    }).length;
+    var DOC_COUNT = 8;                 // documents to collect
+    var ENEMY_COUNT = 5;               // contact-triggered ambush doors
+    for (var i = 0; i < slots.length; i++) {
+      var kind = i < DOC_COUNT ? "doc"
+               : i < DOC_COUNT + ENEMY_COUNT ? "enemy"
+               : "plain";
+      self.doors.push(new Door(slots[i].x, slots[i].floor, kind));
+    }
+
+    this.totalDocs = DOC_COUNT;
   };
+
+  function shuffle(a) {
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
 
   function addSlabRow(out, y) {
     // Walk across the width, emitting slab segments and skipping shaft gaps.

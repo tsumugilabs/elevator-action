@@ -37,8 +37,11 @@
     lives: 3,
     docs: 0,
     msg: "",
-    msgTimer: 0
+    msgTimer: 0,
+    spawnTimer: 0        // spawn-director countdown
   };
+
+  var MAX_ENEMIES = 5;   // concurrent enemy cap
 
   function startGame() {
     game.level = new global.Level();
@@ -49,6 +52,7 @@
     game.lives = 3;
     game.docs = 0;
     game.state = STATE.PLAY;
+    game.spawnTimer = 300;                 // first director spawn ~5s in
     overlay.classList.add("hidden");
     hud.docsTotal.textContent = game.level.totalDocs;
     if (global.Sound) { global.Sound.resume(); global.Sound.startMusic(); }
@@ -133,20 +137,24 @@
         if (global.Sound) global.Sound.play("pickup");
         syncHud();
       } else if (door.kind === "enemy" && !door.spawned && !door.arming) {
-        door.arming = true;
-        door.warning = door.warnMax;
-        flash("CAUTION!");
-        if (global.Sound) global.Sound.play("caution");
+        door.spawned = true;              // ambush door: one-shot on contact
+        armDoor(door, true);
       }
     }
 
-    // Count down armed enemy doors; spawn the enemy when the warning ends.
+    // Spawn director: at random intervals, an agent bursts from a nearby door
+    // so encounters aren't tied to fixed positions. Skipped while capped.
+    if (--game.spawnTimer <= 0) {
+      directorSpawn(level, player);
+      game.spawnTimer = 240 + Math.floor(Math.random() * 240); // 4–8s
+    }
+
+    // Count down every armed door; spawn the agent when its warning ends.
     for (var aw = 0; aw < level.doors.length; aw++) {
       var ad = level.doors[aw];
-      if (ad.arming && !ad.spawned) {
+      if (ad.arming) {
         ad.warning--;
         if (ad.warning <= 0) {
-          ad.spawned = true;
           ad.arming = false;
           game.enemies.push(new Entities.Enemy(ad.x + 4, ad.y + 12));
         }
@@ -173,6 +181,30 @@
 
     updateCamera();
     syncHud();
+  }
+
+  /** Begin an enemy door's telegraph (blinking warning) before it spawns. */
+  function armDoor(door, announce) {
+    door.arming = true;
+    door.warning = door.warnMax;
+    if (announce) flash("CAUTION!");
+    if (global.Sound) global.Sound.play("caution");
+  }
+
+  /** Pick a random non-objective door on-screen and have it spawn an agent. */
+  function directorSpawn(level, player) {
+    if (game.enemies.length >= MAX_ENEMIES) return;
+    var top = game.camY - 24, bot = game.camY + C.VIEW_H + 24;
+    var pool = [];
+    for (var i = 0; i < level.doors.length; i++) {
+      var dr = level.doors[i];
+      if (dr.kind === "doc" || dr.arming) continue;      // never from objectives
+      if (dr.y < top || dr.y > bot) continue;            // must be visible
+      if (Math.abs(dr.x - player.x) < 40) continue;      // not right on top of us
+      pool.push(dr);
+    }
+    if (!pool.length) return;
+    armDoor(pool[Math.floor(Math.random() * pool.length)], false);
   }
 
   /** If an actor rests on an elevator, move it by the elevator's delta. */
