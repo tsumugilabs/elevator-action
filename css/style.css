@@ -1,0 +1,127 @@
+:root {
+  --bg: #0b0d14;
+  --panel: #121626;
+  --accent: #ff4040;
+  --text: #e8ecf4;
+  --muted: #8a93a6;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: radial-gradient(circle at 50% 0%, #1a2036 0%, var(--bg) 70%);
+  color: var(--text);
+  font-family: "Courier New", monospace;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+#game-wrapper {
+  width: 512px;
+  max-width: 100%;
+}
+
+#hud {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 8px 4px;
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+.hud-item b { color: var(--text); }
+#hud-docs, #hud-docs-total { color: var(--accent); }
+
+#stage {
+  position: relative;
+  width: 512px;
+  max-width: 100%;
+}
+
+canvas#game {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  background: #05070d;
+  border: 2px solid #2a3350;
+  border-radius: 4px;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: rgba(5, 7, 13, 0.92);
+  border-radius: 4px;
+  padding: 24px;
+}
+
+.overlay.hidden { display: none; }
+
+.overlay h1 {
+  margin: 0 0 8px;
+  font-size: 34px;
+  letter-spacing: 4px;
+  color: var(--accent);
+  text-shadow: 0 0 12px rgba(255, 64, 64, 0.6);
+}
+
+.subtitle {
+  margin: 0 0 18px;
+  max-width: 340px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.controls {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 22px;
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--text);
+}
+
+kbd {
+  background: #222a44;
+  border: 1px solid #3a456a;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+}
+
+button {
+  font-family: inherit;
+  font-size: 18px;
+  letter-spacing: 3px;
+  padding: 10px 34px;
+  color: #05070d;
+  background: var(--accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.2s ease;
+  box-shadow: 0 0 18px rgba(255, 64, 64, 0.5);
+}
+
+button:hover { transform: translateY(-2px); }
+button:active { transform: translateY(0); }
+
+#hint {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 10px 0 0;
+}

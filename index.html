@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Elevator Action — ブラウザ版</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0d14'/%3E%3Crect x='5' y='2' width='6' height='12' fill='%23ff4040'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="game-wrapper">
+    <header id="hud">
+      <span class="hud-item">SCORE <b id="hud-score">0</b></span>
+      <span class="hud-item">HI <b id="hud-hi">0</b></span>
+      <span class="hud-item">DOCS <b id="hud-docs">0</b>/<b id="hud-docs-total">0</b></span>
+      <span class="hud-item">LIVES <b id="hud-lives">3</b></span>
+    </header>
+
+    <div id="stage">
+      <canvas id="game" width="512" height="480"></canvas>
+
+      <div id="overlay" class="overlay">
+        <h1>ELEVATOR ACTION</h1>
+        <p class="subtitle">赤いドアの機密書類をすべて回収し、地下の脱出車へ急げ。</p>
+        <ul class="controls">
+          <li><kbd>←</kbd> <kbd>→</kbd> 移動</li>
+          <li><kbd>↑</kbd> <kbd>↓</kbd> エレベーター / ドア</li>
+          <li><kbd>Z</kbd> ジャンプ &nbsp; <kbd>X</kbd> ショット &nbsp; <kbd>↓</kbd> しゃがみ</li>
+        </ul>
+        <button id="start-btn">START</button>
+      </div>
+    </div>
+
+    <p id="hint">Z: ジャンプ / X: ショット / 矢印: 移動・エレベーター</p>
+  </div>
+
+  <script src="js/input.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/level.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
