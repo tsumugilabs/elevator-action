@@ -95,7 +95,12 @@
                            noiseBurst(0.08, 0.18); },
     lock:    function () { blip({ type: "square", f0: 1320, dur: 0.05, gain: 0.14 }); },
     snipe:   function () { noiseBurst(0.14, 0.42);
-                           blip({ type: "sawtooth", f0: 160, f1: 45, dur: 0.4, gain: 0.32 }); }
+                           blip({ type: "sawtooth", f0: 160, f1: 45, dur: 0.4, gain: 0.32 }); },
+    guilty:  function () {   // ominous low stinger for the "GUILTY" cut
+      blip({ type: "sawtooth", f0: 110, dur: 0.9, gain: 0.22 });
+      blip({ type: "sawtooth", f0: 146, dur: 0.9, gain: 0.18 });
+      blip({ type: "square", f0: 55, dur: 0.9, gain: 0.16 });
+    }
   };
 
   function play(name) { if (SFX[name]) SFX[name](); }

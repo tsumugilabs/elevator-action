@@ -89,7 +89,7 @@
     // Apply the loadout chosen on the previous stage-clear screen.
     if (game.pendingLoadout === "machinegun") game.player.mg = true;
     else if (game.pendingLoadout === "vest") game.player.armor = 3;
-    else if (game.pendingLoadout === "okb") game.player.okb = 3;
+    else if (game.pendingLoadout === "okb") game.player.okb = Infinity;  // unlimited (for now)
     game.pendingLoadout = null;
 
     overlay.classList.add("hidden");
@@ -446,7 +446,8 @@
 
   // ---- OKB 13 (tap-to-snipe) ---------------------------------------------
 
-  var SNIPE = { zoom: 22, aim: 38, fire: 16 };
+  // ~3s dramatic sequence: slow zoom, lock-on, a 1s "GUILTY" cut, headshot.
+  var SNIPE = { zoom: 54, aim: 44, guilty: 62, fire: 20 };
 
   /** A tap on the play-field: if OKB 13 is loaded and an agent is under the
    *  pointer, begin the dramatic sniper-kill sequence. */
@@ -474,6 +475,9 @@
       s.phase = "aim"; s.t = 0;
       if (global.Sound) global.Sound.play("lock");
     } else if (s.phase === "aim" && s.t >= SNIPE.aim) {
+      s.phase = "guilty"; s.t = 0;
+      if (global.Sound) global.Sound.play("guilty");
+    } else if (s.phase === "guilty" && s.t >= SNIPE.guilty) {
       s.phase = "fire"; s.t = 0;
       if (global.Sound) global.Sound.play("snipe");
     } else if (s.phase === "fire" && s.t >= SNIPE.fire) {
@@ -481,7 +485,7 @@
       game.enemies = game.enemies.filter(function (x) { return !x.dead; });
       addScore(1500);
       if (global.Sound) global.Sound.play("explode");
-      game.player.okb--;
+      if (game.player.okb !== Infinity) game.player.okb--;
       game.snipe = null;
       syncHud();
     }
@@ -501,6 +505,17 @@
     if (game.state === STATE.MENU) return;
 
     ctx.save();
+    // During a snipe, zoom the whole world in on the target for extra drama.
+    var sn = game.snipe;
+    if (sn && sn.phase !== "guilty") {
+      var z = snipeZoom(sn);
+      var zx = sn.enemy.x + sn.enemy.w / 2;
+      var zy = sn.enemy.y + 8 - game.camY;
+      var shake = sn.phase === "fire" ? (Math.random() - 0.5) * 6 : 0;
+      ctx.translate(zx + shake, zy + shake);
+      ctx.scale(z, z);
+      ctx.translate(-zx, -zy);
+    }
     ctx.translate(0, -Math.round(game.camY));
 
     game.level.draw(ctx);
@@ -511,8 +526,21 @@
 
     ctx.restore();
 
-    if (game.snipe) drawScope(game.snipe);
+    if (game.snipe) {
+      if (game.snipe.phase === "guilty") drawGuiltyCut(game.snipe.t);
+      else drawScope(game.snipe);
+    }
     if (game.msgTimer > 0) drawFlash();
+  }
+
+  function snipeZoom(s) {
+    var Z = 2.7;
+    if (s.phase === "zoom") {
+      var u = s.t / SNIPE.zoom;
+      u = u * u * (3 - 2 * u);            // smoothstep ease
+      return 1 + (Z - 1) * u;
+    }
+    return Z;                              // aim / fire hold zoomed in
   }
 
   /** Dramatic OKB 13 sniper scope, drawn in screen space over the frozen world. */
@@ -520,64 +548,240 @@
     var W = canvas.width, H = canvas.height;
     var e = s.enemy;
     var tx = e.x + e.w / 2;
-    var ty = e.y + 6 - game.camY;              // aim at the head
-    if (s.phase === "aim") { tx += Math.sin(s.t / 5) * 3; ty += Math.cos(s.t / 6) * 2; }
+    var ty = e.y + 8 - game.camY;              // aim at the head (world is zoomed)
+    var sway = s.phase === "aim" ? 2.5 : 0;    // slow breathing sway
+    tx += Math.sin(s.t / 9) * sway;
+    ty += Math.cos(s.t / 11) * sway;
 
-    var full = Math.max(W, H) * 1.1, rMin = 82;
-    var r = s.phase === "zoom" ? full - (full - rMin) * (s.t / SNIPE.zoom) : rMin;
+    var full = Math.max(W, H) * 1.15, rMin = 96;
+    var r = s.phase === "zoom"
+      ? full - (full - rMin) * smooth(s.t / SNIPE.zoom)
+      : rMin;
+
+    ctx.save();
+
+    // Slow-motion blue tint during the lead-up.
+    if (s.phase === "zoom" || s.phase === "aim") {
+      ctx.fillStyle = "rgba(50,90,170,0.12)";
+      ctx.fillRect(0, 0, W, H);
+    }
 
     // Dark vignette with a circular hole punched at the target.
-    ctx.save();
-    ctx.fillStyle = "rgba(2,3,8,0.92)";
+    ctx.fillStyle = "rgba(2,3,8,0.93)";
     ctx.beginPath();
     ctx.rect(0, 0, W, H);
     ctx.arc(tx, ty, r, 0, Math.PI * 2, true);
     ctx.fill("evenodd");
     // Scope rings.
-    ctx.lineWidth = 10; ctx.strokeStyle = "#04050a";
+    ctx.lineWidth = 12; ctx.strokeStyle = "#04050a";
     ctx.beginPath(); ctx.arc(tx, ty, r, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = 2; ctx.strokeStyle = "#2a3350";
-    ctx.beginPath(); ctx.arc(tx, ty, r - 5, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(tx, ty, r - 6, 0, Math.PI * 2); ctx.stroke();
 
     // Reticle, clipped to the lens.
     ctx.save();
-    ctx.beginPath(); ctx.arc(tx, ty, r - 5, 0, Math.PI * 2); ctx.clip();
-    ctx.strokeStyle = "rgba(230,70,70,0.85)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(tx, ty, r - 6, 0, Math.PI * 2); ctx.clip();
+    ctx.strokeStyle = "rgba(235,70,70,0.85)"; ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(tx - r, ty); ctx.lineTo(tx + r, ty);
     ctx.moveTo(tx, ty - r); ctx.lineTo(tx, ty + r);
     ctx.stroke();
-    for (var k = -5; k <= 5; k++) {
+    for (var k = -6; k <= 6; k++) {
       if (!k) continue;
       ctx.beginPath();
-      ctx.moveTo(tx + k * 9, ty - 3); ctx.lineTo(tx + k * 9, ty + 3);
-      ctx.moveTo(tx - 3, ty + k * 9); ctx.lineTo(tx + 3, ty + k * 9);
+      ctx.moveTo(tx + k * 10, ty - 3); ctx.lineTo(tx + k * 10, ty + 3);
+      ctx.moveTo(tx - 3, ty + k * 10); ctx.lineTo(tx + 3, ty + k * 10);
       ctx.stroke();
+    }
+    // Pulsing lock ring during aim (heartbeat).
+    if (s.phase === "aim") {
+      var pr = 26 + (Math.sin(s.t / 5) + 1) * 8;
+      ctx.strokeStyle = "rgba(255,80,80,0.7)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(tx, ty, pr, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.fillStyle = "rgba(255,50,50,0.95)"; ctx.fillRect(tx - 2, ty - 2, 4, 4);
     ctx.restore();
 
+    // HUD text inside/under the scope.
     ctx.textAlign = "center";
     if (s.phase === "zoom" || s.phase === "aim") {
-      ctx.fillStyle = "#ff5a5a"; ctx.font = "bold 13px 'Courier New', monospace";
-      ctx.fillText("O K B  1 3", tx, ty - r + 20);
+      ctx.fillStyle = "#ff6a6a"; ctx.font = "bold 13px 'Courier New', monospace";
+      ctx.fillText("O K B   1 3", tx, ty - r + 22);
+      ctx.fillStyle = "rgba(180,200,230,0.7)"; ctx.font = "11px 'Courier New', monospace";
+      ctx.fillText("RANGE 1200m  WIND 3", tx, ty + r - 14);
       if (s.phase === "aim" && Math.floor(s.t / 8) % 2 === 0) {
-        ctx.fillStyle = "#ffd166"; ctx.font = "bold 15px 'Courier New', monospace";
-        ctx.fillText("TARGET LOCKED", W / 2, H - 34);
+        ctx.fillStyle = "#ffd166"; ctx.font = "bold 16px 'Courier New', monospace";
+        ctx.fillText("TARGET LOCKED", W / 2, H - 30);
       }
     }
     if (s.phase === "fire") {
       var a = 1 - s.t / SNIPE.fire;
-      ctx.fillStyle = "rgba(255,255,255," + (a * 0.9) + ")"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "rgba(255,255,255," + (a * 0.95) + ")"; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = "#ff2a2a";
-      for (var b = 0; b < 10; b++) {
-        var ang = b * Math.PI / 5, len = 6 + s.t * 2.4;
-        ctx.fillRect(tx + Math.cos(ang) * len - 2, ty + Math.sin(ang) * len - 2, 4, 4);
+      for (var b = 0; b < 12; b++) {
+        var ang = b * Math.PI / 6, len = 6 + s.t * 3;
+        ctx.fillRect(tx + Math.cos(ang) * len - 2, ty + Math.sin(ang) * len - 2, 5, 5);
       }
-      ctx.fillStyle = "#fff"; ctx.font = "bold 22px 'Courier New', monospace";
-      ctx.fillText("HEADSHOT!", W / 2, 52);
+      ctx.fillStyle = "#fff"; ctx.font = "bold 24px 'Courier New', monospace";
+      ctx.fillText("HEADSHOT!", W / 2, 54);
     }
     ctx.textAlign = "left";
+    ctx.restore();
+  }
+
+  function smooth(u) { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); }
+
+  /**
+   * 1-second gekiga-style cut: a stern OKB 13 sniper in high-contrast ink with
+   * focus lines and a jagged "ギルティ" speech burst, just before the shot.
+   */
+  function drawGuiltyCut(t) {
+    var W = canvas.width, H = canvas.height;
+    var intro = clamp(t / 8, 0, 1);            // slam-in
+    var shake = t < 8 ? (1 - intro) * 8 : 0;
+
+    ctx.save();
+    ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+
+    // Backdrop: deep crimson-to-black radial.
+    var g = ctx.createRadialGradient(W * 0.42, H * 0.5, 30, W * 0.42, H * 0.5, W * 0.8);
+    g.addColorStop(0, "#3a0a12"); g.addColorStop(1, "#05050a");
+    ctx.fillStyle = g; ctx.fillRect(-20, -20, W + 40, H + 40);
+
+    // Manga focus lines converging on the sniper.
+    var fx = W * 0.44, fy = H * 0.46;
+    for (var i = 0; i < 96; i++) {
+      var ang = (i / 96) * Math.PI * 2 + t * 0.003;
+      var r0 = 150 + (i % 4) * 10;
+      ctx.strokeStyle = i % 2 ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.55)";
+      ctx.lineWidth = i % 6 === 0 ? 2.4 : 1;
+      ctx.beginPath();
+      ctx.moveTo(fx + Math.cos(ang) * r0, fy + Math.sin(ang) * r0);
+      ctx.lineTo(fx + Math.cos(ang) * 780, fy + Math.sin(ang) * 780);
+      ctx.stroke();
+    }
+
+    // Halftone screentone in the lower shadow.
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    for (var yy = H * 0.62; yy < H; yy += 9) {
+      for (var xx = 6; xx < W; xx += 9) {
+        ctx.beginPath(); ctx.arc(xx, yy, 2.2, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    drawSniperFace(W * 0.46, H * 0.52, 1 + (1 - intro) * 0.12);
+
+    // "ギルティ" speech burst (pops in after ~14 frames).
+    if (t > 12) {
+      var pop = clamp((t - 12) / 8, 0, 1);
+      drawGuiltyBubble(W * 0.72, H * 0.30, smooth(pop));
+    }
+
+    // Bottom caption bar.
+    ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0, H - 30, W, 30);
+    ctx.fillStyle = "#e6d8b0"; ctx.font = "bold 13px 'Courier New', monospace";
+    ctx.textAlign = "left"; ctx.fillText("OKB 13", 12, H - 10);
+    ctx.textAlign = "right"; ctx.fillStyle = "#ff5a5a";
+    ctx.fillText("— NO MISS —", W - 12, H - 10);
+    ctx.textAlign = "left";
+    ctx.restore();
+  }
+
+  /** Stern ink portrait of the sniper (fedora, hard glare, rifle across). */
+  function drawSniperFace(cx, cy, sc) {
+    ctx.save();
+    ctx.translate(cx, cy); ctx.scale(sc, sc);
+
+    // Neck + shoulders (dark coat).
+    ctx.fillStyle = "#0c0d13";
+    ctx.beginPath();
+    ctx.moveTo(-120, 190); ctx.lineTo(-70, 70); ctx.lineTo(70, 70);
+    ctx.lineTo(130, 190); ctx.closePath(); ctx.fill();
+
+    // Face (angular, pale ink).
+    ctx.fillStyle = "#d9cdb4";
+    ctx.beginPath();
+    ctx.moveTo(-58, -70);      // temple
+    ctx.lineTo(58, -70);
+    ctx.lineTo(64, 6);         // cheekbone
+    ctx.lineTo(40, 66);        // jaw
+    ctx.lineTo(0, 96);         // chin
+    ctx.lineTo(-42, 62);
+    ctx.lineTo(-62, 0);
+    ctx.closePath(); ctx.fill();
+
+    // Cheek shadow (hatched side).
+    ctx.fillStyle = "rgba(30,22,16,0.55)";
+    ctx.beginPath();
+    ctx.moveTo(64, 6); ctx.lineTo(40, 66); ctx.lineTo(6, 92);
+    ctx.lineTo(24, 0); ctx.closePath(); ctx.fill();
+
+    // Fedora.
+    ctx.fillStyle = "#0e1120";
+    ctx.beginPath();
+    ctx.moveTo(-86, -60); ctx.quadraticCurveTo(0, -150, 86, -60);
+    ctx.quadraticCurveTo(70, -74, 0, -78);
+    ctx.quadraticCurveTo(-70, -74, -86, -60); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#171a2c";                 // crown
+    ctx.beginPath();
+    ctx.moveTo(-52, -70); ctx.quadraticCurveTo(0, -140, 52, -70);
+    ctx.quadraticCurveTo(0, -96, -52, -70); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#3a1420";                 // band
+    ctx.fillRect(-58, -74, 116, 7);
+
+    // Brow shadow.
+    ctx.fillStyle = "#20160f";
+    ctx.fillRect(-56, -30, 112, 10);
+
+    // Eyes — hard glare.
+    ctx.fillStyle = "#111";
+    ctx.beginPath(); ctx.moveTo(-46, -18); ctx.lineTo(-14, -12);
+    ctx.lineTo(-16, -2); ctx.lineTo(-46, -8); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(46, -18); ctx.lineTo(14, -12);
+    ctx.lineTo(16, -2); ctx.lineTo(46, -8); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#ff5a5a";                 // menacing glint
+    ctx.fillRect(-34, -14, 5, 4); ctx.fillRect(24, -14, 5, 4);
+
+    // Nose + grim mouth.
+    ctx.strokeStyle = "#5a4636"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(2, -8); ctx.lineTo(-8, 30); ctx.lineTo(4, 34); ctx.stroke();
+    ctx.strokeStyle = "#20160f"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(-26, 56); ctx.lineTo(26, 52); ctx.stroke();
+
+    // Rifle across the lower frame + gloved hand.
+    ctx.save();
+    ctx.rotate(-0.32);
+    ctx.fillStyle = "#0a0c12"; ctx.fillRect(-170, 120, 300, 16);   // barrel
+    ctx.fillStyle = "#171b28"; ctx.fillRect(-40, 108, 70, 40);      // scope/receiver
+    ctx.fillStyle = "#2a2f42"; ctx.fillRect(-150, 116, 40, 6);      // highlight
+    ctx.restore();
+    ctx.fillStyle = "#14161f";
+    ctx.beginPath(); ctx.arc(-6, 150, 22, 0, Math.PI * 2); ctx.fill(); // hand
+
+    ctx.restore();
+  }
+
+  /** Jagged manga speech burst reading "ギルティ". */
+  function drawGuiltyBubble(cx, cy, sc) {
+    if (sc <= 0) return;
+    ctx.save();
+    ctx.translate(cx, cy); ctx.scale(sc, sc);
+    var spikes = 14, rO = 92, rI = 66;
+    ctx.beginPath();
+    for (var i = 0; i < spikes * 2; i++) {
+      var ang = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+      var rr = i % 2 === 0 ? rO : rI;
+      var x = Math.cos(ang) * rr * 1.15, y = Math.sin(ang) * rr * 0.8;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "#f7f2e6"; ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = "#111"; ctx.stroke();
+    ctx.fillStyle = "#111";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "bold 34px 'Courier New', sans-serif";
+    ctx.fillText("ギルティ", 0, 2);
+    ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
     ctx.restore();
   }
 
@@ -602,7 +806,7 @@
       var p = game.player;
       if (p && p.mg) parts.push("🔫");
       if (p && p.armor > 0) parts.push("🛡" + p.armor);
-      if (p && p.okb > 0) parts.push("🎯" + p.okb);
+      if (p && p.okb > 0) parts.push("🎯" + (p.okb === Infinity ? "∞" : p.okb));
       hud.power.textContent = parts.join(" ");
     }
   }
@@ -614,6 +818,59 @@
       '<p class="subtitle">SCORE ' + game.score + ' &nbsp;/&nbsp; HI ' + game.hi + '</p>' +
       '<button id="start-btn">' + (won ? "PLAY AGAIN" : "RETRY") + '</button>';
     document.getElementById("start-btn").addEventListener("click", startGame);
+  }
+
+  // ---- Debug menu ---------------------------------------------------------
+
+  var dbg = { stage: 0, weapon: "none" };
+  var WEAPONS = [
+    { id: "none", label: "なし" },
+    { id: "machinegun", label: "🔫 マシンガン" },
+    { id: "vest", label: "🛡 防弾チョッキ" },
+    { id: "okb", label: "🎯 OKB 13" }
+  ];
+
+  function openDebug() {
+    game.state = STATE.MENU;                 // pause the world
+    if (global.Sound) global.Sound.stopMusic();
+    overlay.classList.remove("hidden");
+    renderDebug();
+  }
+
+  function renderDebug() {
+    var stageBtns = "";
+    for (var i = 0; i < STAGES.length; i++) {
+      stageBtns += '<button class="dbg-cell dbg-stage' + (i === dbg.stage ? " sel" : "") +
+        '" data-i="' + i + '">' + (i + 1) + "<small>" + STAGES[i].name + "</small></button>";
+    }
+    var wBtns = "";
+    for (var w = 0; w < WEAPONS.length; w++) {
+      wBtns += '<button class="dbg-cell dbg-weap' + (WEAPONS[w].id === dbg.weapon ? " sel" : "") +
+        '" data-w="' + WEAPONS[w].id + '">' + WEAPONS[w].label + "</button>";
+    }
+    overlay.innerHTML =
+      '<h1 style="font-size:22px;letter-spacing:2px">DEBUG</h1>' +
+      '<p class="subtitle" style="margin-bottom:8px">STAGE</p>' +
+      '<div class="dbg-row">' + stageBtns + "</div>" +
+      '<p class="subtitle" style="margin:14px 0 8px">WEAPON</p>' +
+      '<div class="dbg-row">' + wBtns + "</div>" +
+      '<button id="dbg-go" style="margin-top:18px">GO</button>';
+    var i, cells = overlay.querySelectorAll(".dbg-stage");
+    for (i = 0; i < cells.length; i++) cells[i].addEventListener("click", function () {
+      dbg.stage = +this.getAttribute("data-i"); renderDebug();
+    });
+    var wcells = overlay.querySelectorAll(".dbg-weap");
+    for (i = 0; i < wcells.length; i++) wcells[i].addEventListener("click", function () {
+      dbg.weapon = this.getAttribute("data-w"); renderDebug();
+    });
+    document.getElementById("dbg-go").addEventListener("click", function () {
+      game.score = 0;
+      game.lives = 2;
+      game.stage = dbg.stage;
+      game.pendingLoadout = dbg.weapon;
+      if (global.Sound) global.Sound.resume();
+      loadStage();
+    });
   }
 
   // ---- Loop ---------------------------------------------------------------
@@ -634,7 +891,16 @@
       else if (game.state !== STATE.PLAY) startGame();
     }
     if (e.code === "KeyM") toggleSound();
+    if (e.code === "Backquote") { e.preventDefault(); openDebug(); }   // ` opens debug
   });
+
+  // Debug button — hidden unless the URL asks for it (e.g. .../#debug), handy
+  // on touch devices that have no backquote key.
+  var debugBtn = document.getElementById("debug-btn");
+  if (debugBtn) {
+    if (/debug/i.test(location.hash + location.search)) debugBtn.style.display = "";
+    debugBtn.addEventListener("click", openDebug);
+  }
 
   // Tap/click the play-field to fire OKB 13 at an agent under the pointer.
   canvas.addEventListener("pointerdown", function (e) {
