@@ -66,20 +66,22 @@
 
   // ---- Bullet -------------------------------------------------------------
 
-  function Bullet(x, y, dir, fromPlayer) {
+  function Bullet(x, y, vx, vy, fromPlayer, homing) {
     this.w = 6; this.h = 3;
     this.x = x; this.y = y;
-    this.vx = dir * 7;
+    this.vx = vx; this.vy = vy || 0;
     this.fromPlayer = fromPlayer;
+    this.homing = !!homing;         // level-9 machine gun: seeks enemies
     this.dead = false;
   }
   Bullet.prototype.update = function () {
-    this.x += this.vx;
-    if (this.x < -20 || this.x > 532) this.dead = true;
+    this.x += this.vx; this.y += this.vy;
+    if (this.x < -40 || this.x > 560 || this.y < -40 || this.y > 800) this.dead = true;
   };
   Bullet.prototype.draw = function (ctx) {
-    ctx.fillStyle = this.fromPlayer ? "#ffe86b" : "#ff6b6b";
-    ctx.fillRect(this.x, this.y, this.w, this.h);
+    ctx.fillStyle = this.homing ? "#8affc0" : (this.fromPlayer ? "#ffe86b" : "#ff6b6b");
+    if (this.homing) { ctx.fillRect(this.x - 1, this.y - 1, this.w + 2, this.h + 2); }
+    else ctx.fillRect(this.x, this.y, this.w, this.h);
   };
 
   // ---- Player -------------------------------------------------------------
@@ -101,8 +103,8 @@
     this.invuln = 0;          // frames of spawn invulnerability
     this.animT = 0;           // walk-cycle timer
     this.muzzle = 0;          // frames the muzzle flash stays lit
-    this.mg = false;          // machine-gun power-up: held until hit
-    this.armor = 0;           // bulletproof-vest hits remaining
+    this.mgLevel = 0;         // machine-gun level: 0 none, 1..8 N-way, 9 homing
+    this.armor = 0;           // bulletproof-vest points (max 10)
     this.okb = 0;             // OKB 13 sniper rounds remaining
     this.mines = 0;           // landmines remaining to deploy
     this.mineCd = 0;          // deploy cooldown
@@ -131,16 +133,30 @@
     applyGravity(this);
     moveAndCollide(this, solids);
 
-    // Machine gun: hold to auto-fire fast. Otherwise: one shot per press.
-    // (While carrying landmines, the shoot button deploys a mine instead —
-    // handled in the main loop — so no bullet is fired here.)
+    // Firing. Level 0: single shot per press. Level 1: rapid forward.
+    // Level 2..8: N bullets spread evenly around the compass. Level 9: a single
+    // homing bullet that seeks enemies. (Landmines are on their own button.)
     if (this.shootCd > 0) this.shootCd--;
-    var wantShot = this.mines <= 0 && (this.mg ? input.held("shoot") : input.pressed("shoot"));
+    var lvl = this.mgLevel;
+    var wantShot = lvl >= 1 ? input.held("shoot") : input.pressed("shoot");
     if (wantShot && this.shootCd === 0) {
-      var by = this.y + (this.crouching ? 16 : 8);
-      var bx = this.dir > 0 ? this.x + this.w : this.x - 6;
-      bullets.push(new Bullet(bx, by, this.dir, true));
-      this.shootCd = this.mg ? 5 : 12;
+      var cx = this.x + this.w / 2, cy = this.y + (this.crouching ? 16 : 12);
+      if (lvl >= 9) {
+        bullets.push(new Bullet(cx, cy, this.dir > 0 ? 6 : -6, 0, true, true));
+        this.shootCd = 9;
+      } else if (lvl >= 2) {
+        var base = this.dir > 0 ? 0 : Math.PI;
+        for (var i = 0; i < lvl; i++) {
+          var a = base + i * (Math.PI * 2 / lvl);
+          bullets.push(new Bullet(cx, cy, Math.cos(a) * 7, Math.sin(a) * 7, true, false));
+        }
+        this.shootCd = 7;
+      } else {
+        var by = this.y + (this.crouching ? 16 : 8);
+        var bx = this.dir > 0 ? this.x + this.w : this.x - 6;
+        bullets.push(new Bullet(bx, by, this.dir * 7, 0, true, false));
+        this.shootCd = lvl === 1 ? 5 : 12;
+      }
       this.muzzle = 5;
       if (global.Sound) global.Sound.play("shoot");
     }
@@ -201,7 +217,7 @@
       ctx.fillStyle = P.band;   px(ctx, x + 4, y + 3, 9, 1);
       // Outstretched gun arm — bulkier and steel-grey when machine-gunning.
       ctx.fillStyle = P.coat;   px(ctx, x + 11, y + 13, 4, 3);
-      if (this.mg) {
+      if (this.mgLevel >= 1) {
         ctx.fillStyle = "#8a93a6"; px(ctx, x + 14, y + 12, 6, 5);
         ctx.fillStyle = "#3a3f4d"; px(ctx, x + 14, y + 16, 3, 2); // magazine
       } else {
@@ -209,7 +225,7 @@
       }
       if (this.muzzle > 0) {
         ctx.fillStyle = P.flash;
-        px(ctx, this.mg ? x + 20 : x + 18, y + 12, 3, 5);
+        px(ctx, this.mgLevel >= 1 ? x + 20 : x + 18, y + 12, 3, 5);
       }
     }
     ctx.restore();
@@ -283,7 +299,7 @@
       var aim = player.x + player.w / 2 < this.x + this.w / 2 ? -1 : 1;
       var by = this.y + 12;
       var bx = aim > 0 ? this.x + this.w : this.x - 6;
-      bullets.push(new Bullet(bx, by, aim, false));
+      bullets.push(new Bullet(bx, by, aim * 7, 0, false, false));
       this.muzzle = 5;
       this.dir = aim;                        // face the player as it fires
       this.shootCd = 70 + Math.floor(Math.random() * 50);

@@ -295,13 +295,24 @@ body.touch #hint { display: none; }
 }
 
 .tbtn-action {
-  width: 72px;
-  height: 72px;
-  font-size: 16px;
+  width: 64px;
+  height: 64px;
+  font-size: 15px;
   background: var(--accent);
   color: #05070d;
   box-shadow: 0 3px 0 #7a1414;
 }
+
+.tbtn-mine {
+  width: 56px;
+  height: 56px;
+  font-size: 13px;
+  background: #c9772b;
+  color: #120a03;
+  box-shadow: 0 3px 0 #7a4414;
+}
+
+.action-pad { gap: 8px; }
 
 .tbtn small {
   font-size: 10px;
@@ -314,8 +325,13 @@ body.touch #hint { display: none; }
   filter: brightness(1.2);
 }
 
-@media (max-width: 380px) {
-  .tbtn { width: 50px; height: 50px; font-size: 18px; }
-  .tbtn-action { width: 62px; height: 62px; font-size: 14px; }
-  body.touch #touch-controls { gap: 6px; }
+@media (max-width: 400px) {
+  .tbtn { width: 44px; height: 44px; font-size: 15px; }
+  .tbtn-action { width: 50px; height: 50px; font-size: 12px; }
+  .tbtn-mine { width: 44px; height: 44px; font-size: 11px; }
+  body.touch #touch-controls { gap: 4px; }
+  .action-pad { gap: 5px; }
+  .dpad-row { gap: 4px; }
+  .dpad { gap: 4px; }
+  .tbtn small { font-size: 8px; }
 }

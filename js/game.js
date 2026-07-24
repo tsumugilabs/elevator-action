@@ -86,6 +86,8 @@
     docs: 0,
     stage: 0,
     pendingLoadout: null,   // loadout chosen on the stage-clear screen
+    loadout: null,          // carried-over arsenal { mgLevel, armor, mines, okb }
+    continues: 0,           // number of continues used this run
     snipe: null,            // active OKB 13 sniper-kill animation
     sniper: null,           // stage-4 enemy sniper hazard
     taunt: null,            // active continue taunt
@@ -103,9 +105,13 @@
     game.lives = 2;
     game.stage = 0;
     game.pendingLoadout = null;
+    game.loadout = { mgLevel: 0, armor: 0, mines: 0, okb: 0 };
+    game.continues = 0;
     if (global.Sound) global.Sound.resume();
     loadStage();
   }
+
+  var MAX_ARMOR = 10, MAX_MG = 9, MAX_MINES = 16;
 
   // Build the current stage (keeps score/lives) and begin play.
   function loadStage() {
@@ -128,12 +134,12 @@
     game.state = STATE.PLAY;
     game.spawnTimer = 240;                  // first director spawn ~4s in
 
-    // Apply the loadout chosen on the previous stage-clear screen.
-    if (game.pendingLoadout === "machinegun") game.player.mg = true;
-    else if (game.pendingLoadout === "vest") game.player.armor = 3;
-    else if (game.pendingLoadout === "okb") game.player.okb = Infinity;  // unlimited (for now)
-    else if (game.pendingLoadout === "mine") game.player.mines = 8;
-    game.pendingLoadout = null;
+    // Apply the carried-over arsenal (special weapons + vest persist between stages).
+    var lo = game.loadout || (game.loadout = { mgLevel: 0, armor: 0, mines: 0, okb: 0 });
+    game.player.mgLevel = lo.mgLevel;
+    game.player.armor = lo.armor;
+    game.player.mines = lo.mines;
+    game.player.okb = lo.okb;
 
     overlay.classList.add("hidden");
     hud.docsTotal.textContent = game.level.totalDocs;
@@ -148,7 +154,6 @@
     if (game.lives <= 0) { endGame(false); return; }
     game.lives--;
     game.player.invuln = 90;
-    game.player.mg = false;
     flash("MISS");
     if (global.Sound) global.Sound.play("miss");
     syncHud();
@@ -164,30 +169,56 @@
     game.state = STATE.STAGECLEAR;
     if (game.score > game.hi) { game.hi = game.score; localStorage.setItem("ea_hi", String(game.hi)); }
     if (global.Sound) { global.Sound.stopMusic(); global.Sound.play("win"); }
+    captureLoadout();                          // carry the current arsenal forward
     syncHud();
 
-    // Loadout selection for the next stage. OKB 13 unlocks entering stage 5+.
+    // The chosen item is ADDED on top of what carried over.
     var next = game.stage + 1;                 // 0-indexed next stage
     var okbEligible = next >= 4;
     var choices =
-      '<button class="loadout" data-load="machinegun">🔫 マシンガン</button>' +
-      '<button class="loadout" data-load="vest">🛡 防弾チョッキ</button>' +
-      '<button class="loadout" data-load="mine">💣 地雷</button>' +
+      '<button class="loadout" data-load="machinegun">🔫 マシンガン +Lv</button>' +
+      '<button class="loadout" data-load="vest">🛡 防弾チョッキ +3</button>' +
+      '<button class="loadout" data-load="mine">💣 地雷 +8</button>' +
       (okbEligible ? '<button class="loadout okb" data-load="okb">🎯 OKB 13</button>' : '') +
       '<button class="loadout none" data-load="none">なし</button>';
     overlay.classList.remove("hidden");
     overlay.innerHTML =
       '<h1>STAGE ' + (game.stage + 1) + ' CLEAR</h1>' +
       '<p class="subtitle">SCORE ' + game.score + '<br>NEXT: STAGE ' + (next + 1) +
-      ' — ' + STAGES[next].name + '<br>装備を選択（次ステージ開始）</p>' +
+      ' — ' + STAGES[next].name + '<br>装備を追加（持ち越し：' + loadoutSummary() + '）</p>' +
       '<div class="loadout-grid">' + choices + '</div>';
     var btns = overlay.querySelectorAll(".loadout");
     for (var i = 0; i < btns.length; i++) {
       btns[i].addEventListener("click", function () {
+        addToLoadout(this.getAttribute("data-load"));
         game.pendingLoadout = this.getAttribute("data-load");
         beginWithLoadout(nextStage);
       });
     }
+  }
+
+  // Snapshot the player's current arsenal so it carries into the next stage.
+  function captureLoadout() {
+    var p = game.player;
+    game.loadout = { mgLevel: p.mgLevel, armor: p.armor, mines: p.mines, okb: p.okb };
+  }
+
+  // Add the picked item on top of the carried-over loadout.
+  function addToLoadout(id) {
+    var lo = game.loadout;
+    if (id === "machinegun") lo.mgLevel = Math.min(MAX_MG, lo.mgLevel + 1);
+    else if (id === "vest") lo.armor = Math.min(MAX_ARMOR, lo.armor + 3);
+    else if (id === "mine") lo.mines = Math.min(MAX_MINES, lo.mines + 8);
+    else if (id === "okb") lo.okb = Infinity;
+  }
+
+  function loadoutSummary() {
+    var lo = game.loadout, parts = [];
+    if (lo.mgLevel > 0) parts.push("🔫Lv" + lo.mgLevel);
+    if (lo.armor > 0) parts.push("🛡" + lo.armor);
+    if (lo.mines > 0) parts.push("💣" + lo.mines);
+    if (lo.okb > 0) parts.push("🎯");
+    return parts.length ? parts.join(" ") : "なし";
   }
 
   function nextStage() {
@@ -255,7 +286,11 @@
         var jp = document.getElementById("taunt-jp");
         if (jp) jp.classList.add("show");
       }
-      if (game.tauntTimer >= 360) { game.lives = 2; loadStage(); }  // keep score/stage
+      if (game.tauntTimer >= 360) {
+        game.lives = 2;                        // keep score/stage
+        if (game.continues >= 4) showPrideOffer();   // 4th continue: mercy offer
+        else loadStage();
+      }
       return;
     }
 
@@ -447,16 +482,37 @@
   }
 
   function updateBullets() {
-    for (var i = 0; i < game.bullets.length; i++) game.bullets[i].update();
-    // Remove bullets that hit solid geometry (walls/slabs/doors).
+    for (var i = 0; i < game.bullets.length; i++) {
+      var bh = game.bullets[i];
+      if (bh.homing) steerHoming(bh);            // seek the nearest agent
+      bh.update();
+    }
+    // Remove bullets that hit solid geometry (homing rounds ignore walls).
     var solids = game.level.staticSolids;
     for (var b = 0; b < game.bullets.length; b++) {
       var bl = game.bullets[b];
+      if (bl.homing) continue;
       for (var s = 0; s < solids.length; s++) {
         if (Entities.overlaps(bl, solids[s])) { bl.dead = true; break; }
       }
     }
     game.bullets = game.bullets.filter(function (x) { return !x.dead; });
+  }
+
+  /** Steer a homing bullet toward the nearest agent (guaranteed hit). */
+  function steerHoming(bl) {
+    var best = null, bd = Infinity;
+    for (var i = 0; i < game.enemies.length; i++) {
+      var e = game.enemies[i];
+      if (e.dead) continue;
+      var dx = (e.x + e.w / 2) - bl.x, dy = (e.y + e.h / 2) - bl.y;
+      var d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (!best) return;                           // no target: keep flying
+    var tx = (best.x + best.w / 2) - bl.x, ty = (best.y + best.h / 2) - bl.y;
+    var m = Math.sqrt(tx * tx + ty * ty) || 1, sp = 6.5;
+    bl.vx = tx / m * sp; bl.vy = ty / m * sp;
   }
 
   function resolveHits() {
@@ -502,7 +558,6 @@
   function hitPlayer() {
     var p = game.player;
     if (p.invuln > 0) return false;
-    p.mg = false;               // taking any damage drops the machine gun
     if (p.armor > 0) {
       p.armor--;
       p.invuln = 45;
@@ -536,8 +591,13 @@
 
   function applyItem(type) {
     var p = game.player;
-    if (type === "machinegun") { p.mg = true; flash("MACHINE GUN!"); }
-    else { p.armor = 3; flash("VEST x3"); }
+    if (type === "machinegun") {
+      p.mgLevel = Math.min(MAX_MG, p.mgLevel + 1);
+      flash(p.mgLevel >= 9 ? "HOMING GUN!" : "MACHINE GUN Lv" + p.mgLevel);
+    } else {
+      p.armor = Math.min(MAX_ARMOR, p.armor + 3);
+      flash("VEST +3 (" + p.armor + ")");
+    }
     if (global.Sound) global.Sound.play("powerup");
     syncHud();
   }
@@ -545,9 +605,9 @@
   // ---- Landmines ----------------------------------------------------------
 
   function tryDeployMine(player) {
-    if (player.mines <= 0) return;
-    if (player.mineCd > 0) { player.mineCd--; return; }
-    if (Input.pressed("shoot")) {
+    if (player.mineCd > 0) player.mineCd--;
+    if (player.mines <= 0 || player.mineCd > 0) return;
+    if (Input.pressed("mine")) {                 // dedicated mine button/key
       var mx = player.x + player.w / 2 - 8;
       game.mines.push(new Entities.Mine(mx, player.y + player.h - 7));
       player.mines--;
@@ -1171,7 +1231,8 @@
     if (hud.power) {
       var parts = [];
       var p = game.player;
-      if (p && p.mg) parts.push("🔫");
+      if (p && p.mgLevel >= 9) parts.push("🔫HOMING");
+      else if (p && p.mgLevel >= 1) parts.push("🔫Lv" + p.mgLevel);
       if (p && p.armor > 0) parts.push("🛡" + p.armor);
       if (p && p.okb > 0) parts.push("🎯" + (p.okb === Infinity ? "∞" : p.okb));
       if (p && p.mines > 0) parts.push("💣" + p.mines);
@@ -1196,6 +1257,7 @@
 
   // Continue from the current stage, preceded by a 6s taunt (EN, then JP).
   function continueGame() {
+    game.continues++;
     game.taunt = TAUNTS[Math.floor(Math.random() * TAUNTS.length)];
     game.tauntTimer = 0;
     game.state = STATE.TAUNT;
@@ -1207,6 +1269,27 @@
         '<p class="taunt-en">' + escapeHtml(game.taunt.en) + '</p>' +
         '<p class="taunt-jp" id="taunt-jp">' + escapeHtml(game.taunt.jp) + '</p>' +
       '</div>';
+  }
+
+  // From the 4th continue, offer a full loadout (a mercy for the struggling).
+  function showPrideOffer() {
+    game.state = STATE.MENU;
+    overlay.classList.remove("hidden");
+    overlay.innerHTML =
+      '<div class="taunt">' +
+        '<p class="taunt-en" style="margin-bottom:8px">Throw your pride in the trash?</p>' +
+        '<p class="taunt-jp show" style="margin-bottom:20px">プライドをゴミ箱に捨てますか？</p>' +
+        '<p class="okb-note" style="margin-bottom:16px">YES で防弾チョッキ10・マシンガン8方向・地雷・OKB 13 のフル装備で再開</p>' +
+        '<div class="over-btns" style="flex-direction:row;gap:14px">' +
+          '<button id="pride-yes">YES</button>' +
+          '<button id="pride-no" class="secondary">NO（意地でも）</button>' +
+        '</div>' +
+      '</div>';
+    document.getElementById("pride-yes").addEventListener("click", function () {
+      game.loadout = { mgLevel: 8, armor: 10, mines: 8, okb: Infinity };
+      loadStage();
+    });
+    document.getElementById("pride-no").addEventListener("click", loadStage);
   }
 
   function escapeHtml(s) {
@@ -1261,7 +1344,10 @@
       game.score = 0;
       game.lives = 2;
       game.stage = dbg.stage;
-      game.pendingLoadout = dbg.weapon;
+      game.continues = 0;
+      game.loadout = { mgLevel: 0, armor: 0, mines: 0, okb: 0 };
+      addToLoadout(dbg.weapon);               // grant the chosen weapon
+      game.pendingLoadout = dbg.weapon;        // (only used to trigger OKB help)
       if (global.Sound) global.Sound.resume();
       beginWithLoadout(loadStage);
     });

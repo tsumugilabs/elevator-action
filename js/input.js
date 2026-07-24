@@ -14,6 +14,7 @@
     KeyZ: "jump",
     KeyX: "shoot",
     Space: "shoot",
+    KeyC: "mine",
     Enter: "start"
   };
 
@@ -57,7 +58,7 @@
       var map = {
         "btn-left": "left", "btn-right": "right",
         "btn-up": "up", "btn-down": "down",
-        "btn-jump": "jump", "btn-shoot": "shoot"
+        "btn-jump": "jump", "btn-shoot": "shoot", "btn-mine": "mine"
       };
       Object.keys(map).forEach(function (id) {
         var el = document.getElementById(id);
