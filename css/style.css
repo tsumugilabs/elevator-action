@@ -131,6 +131,20 @@ canvas#game {
 .dbg-cell small { font-size: 8px; opacity: 0.6; letter-spacing: 0; }
 .dbg-cell.sel { background: var(--accent); color: #05070d; border-color: var(--accent); }
 
+/* OKB 13 how-to cut. */
+.okb-help {
+  display: flex; flex-direction: column; gap: 9px;
+  max-width: 320px; margin: 8px 0 4px;
+}
+.okb-step {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  font-size: 13px; line-height: 1.4;
+  background: #161c30; border: 1px solid #2a3350; border-radius: 8px; padding: 10px 12px;
+}
+.okb-ico { font-size: 22px; width: 26px; text-align: center; flex: 0 0 auto; }
+.okb-note { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.okb-step b, .okb-note b { color: var(--accent); }
+
 .overlay {
   position: absolute;
   inset: 0;

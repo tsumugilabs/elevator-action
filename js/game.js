@@ -141,7 +141,7 @@
     for (var i = 0; i < btns.length; i++) {
       btns[i].addEventListener("click", function () {
         game.pendingLoadout = this.getAttribute("data-load");
-        nextStage();
+        beginWithLoadout(nextStage);
       });
     }
   }
@@ -149,6 +149,33 @@
   function nextStage() {
     game.stage++;
     loadStage();
+  }
+
+  // Show the OKB 13 how-to before starting when it's the chosen loadout.
+  function beginWithLoadout(proceed) {
+    if (game.pendingLoadout === "okb") showOkbHelp(proceed);
+    else proceed();
+  }
+
+  var pendingProceed = null;
+  function showOkbHelp(onStart) {
+    pendingProceed = onStart;
+    game.state = STATE.MENU;
+    if (global.Sound) global.Sound.stopMusic();
+    overlay.classList.remove("hidden");
+    overlay.innerHTML =
+      '<h1 style="font-size:22px;letter-spacing:1px">🎯 OKB 13</h1>' +
+      '<p class="subtitle">一撃必殺のスナイパー装備</p>' +
+      '<div class="okb-help">' +
+        '<div class="okb-step"><span class="okb-ico">👆</span><span>画面の敵を<b>タップ / クリック</b>で狙撃</span></div>' +
+        '<div class="okb-step"><span class="okb-ico">🎯</span><span>スコープがロックオン → <b>一撃で撃破</b></span></div>' +
+        '<div class="okb-step"><span class="okb-ico">🎬</span><span>発動中は<b>時間が止まる</b>（演出のあと再開）</span></div>' +
+        '<div class="okb-note">弾数 <b>∞</b> ・ 移動は十字キー/ボタンのまま</div>' +
+      "</div>" +
+      '<button id="okb-start">START</button>';
+    document.getElementById("okb-start").addEventListener("click", function () {
+      pendingProceed = null; onStart();
+    });
   }
 
   function endGame(won) {
@@ -446,8 +473,9 @@
 
   // ---- OKB 13 (tap-to-snipe) ---------------------------------------------
 
-  // ~3s dramatic sequence: slow zoom, lock-on, a 1s "GUILTY" cut, headshot.
-  var SNIPE = { zoom: 54, aim: 44, guilty: 62, fire: 20 };
+  // ~3s dramatic sequence + a ~0.75s afterglow: slow zoom, lock-on,
+  // a 1s "GUILTY" cut, headshot, then lingering slow-mo before play resumes.
+  var SNIPE = { zoom: 54, aim: 44, guilty: 62, fire: 20, after: 46 };
 
   /** A tap on the play-field: if OKB 13 is loaded and an agent is under the
    *  pointer, begin the dramatic sniper-kill sequence. */
@@ -481,13 +509,16 @@
       s.phase = "fire"; s.t = 0;
       if (global.Sound) global.Sound.play("snipe");
     } else if (s.phase === "fire" && s.t >= SNIPE.fire) {
+      // The shot lands: remove the agent, then hold on the aftermath.
       s.enemy.dead = true;
       game.enemies = game.enemies.filter(function (x) { return !x.dead; });
       addScore(1500);
       if (global.Sound) global.Sound.play("explode");
       if (game.player.okb !== Infinity) game.player.okb--;
-      game.snipe = null;
+      s.phase = "after"; s.t = 0;
       syncHud();
+    } else if (s.phase === "after" && s.t >= SNIPE.after) {
+      game.snipe = null;                 // resume play
     }
   }
 
@@ -528,18 +559,35 @@
 
     if (game.snipe) {
       if (game.snipe.phase === "guilty") drawGuiltyCut(game.snipe.t);
+      else if (game.snipe.phase === "after") drawAfterglow(game.snipe);
       else drawScope(game.snipe);
     }
     if (game.msgTimer > 0) drawFlash();
   }
 
+  /** Lingering aftermath after the shot: fading vignette + slow-mo pull-back. */
+  function drawAfterglow(s) {
+    var W = canvas.width, H = canvas.height;
+    var u = clamp(s.t / SNIPE.after, 0, 1);
+    var fade = 1 - smooth(u);
+    ctx.save();
+    ctx.fillStyle = "rgba(50,90,170," + (0.10 * fade) + ")"; ctx.fillRect(0, 0, W, H);
+    var g = ctx.createRadialGradient(W / 2, H / 2, 70, W / 2, H / 2, W * 0.85);
+    g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0," + (0.5 * fade) + ")");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    if (u < 0.85) {
+      ctx.globalAlpha = clamp(1 - u / 0.85, 0, 1);
+      ctx.fillStyle = "#ff5a5a"; ctx.font = "bold 22px 'Courier New', monospace";
+      ctx.textAlign = "center"; ctx.fillText("TARGET DOWN", W / 2, 58);
+      ctx.globalAlpha = 1; ctx.textAlign = "left";
+    }
+    ctx.restore();
+  }
+
   function snipeZoom(s) {
     var Z = 2.7;
-    if (s.phase === "zoom") {
-      var u = s.t / SNIPE.zoom;
-      u = u * u * (3 - 2 * u);            // smoothstep ease
-      return 1 + (Z - 1) * u;
-    }
+    if (s.phase === "zoom") return 1 + (Z - 1) * smooth(s.t / SNIPE.zoom);
+    if (s.phase === "after") return 1 + (Z - 1) * (1 - smooth(s.t / SNIPE.after)); // pull back
     return Z;                              // aim / fire hold zoomed in
   }
 
@@ -637,151 +685,213 @@
    */
   function drawGuiltyCut(t) {
     var W = canvas.width, H = canvas.height;
-    var intro = clamp(t / 8, 0, 1);            // slam-in
-    var shake = t < 8 ? (1 - intro) * 8 : 0;
+    var intro = clamp(t / 9, 0, 1);            // slam-in
+    var shake = t < 9 ? (1 - intro) * 7 : 0;
 
     ctx.save();
     ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+    // Slight settle-in zoom.
+    var zc = 1 + (1 - smooth(intro)) * 0.08;
+    ctx.translate(W / 2, H / 2); ctx.scale(zc, zc); ctx.translate(-W / 2, -H / 2);
 
-    // Backdrop: deep crimson-to-black radial.
-    var g = ctx.createRadialGradient(W * 0.42, H * 0.5, 30, W * 0.42, H * 0.5, W * 0.8);
-    g.addColorStop(0, "#3a0a12"); g.addColorStop(1, "#05050a");
-    ctx.fillStyle = g; ctx.fillRect(-20, -20, W + 40, H + 40);
+    // ---- Sky ----
+    ctx.fillStyle = "#cbd1db"; ctx.fillRect(-30, -30, W + 60, H + 60);
+    // Dark ragged clouds with hatching.
+    ctx.fillStyle = "#3c414d";
+    inkCloud(60, 54, 150, 40); inkCloud(280, 38, 180, 52); inkCloud(470, 96, 150, 46);
+    hatch(0, 0, W, 150, 7, -1, "rgba(20,22,28,0.30)");
+    // Faint action lines from the muzzle.
+    ctx.strokeStyle = "rgba(20,22,28,0.18)"; ctx.lineWidth = 1;
+    for (var a = 0; a < 22; a++) {
+      var yy0 = 150 + a * 16;
+      ctx.beginPath(); ctx.moveTo(W, 250); ctx.lineTo(-20, yy0); ctx.stroke();
+    }
 
-    // Manga focus lines converging on the sniper.
-    var fx = W * 0.44, fy = H * 0.46;
-    for (var i = 0; i < 96; i++) {
-      var ang = (i / 96) * Math.PI * 2 + t * 0.003;
-      var r0 = 150 + (i % 4) * 10;
-      ctx.strokeStyle = i % 2 ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.55)";
-      ctx.lineWidth = i % 6 === 0 ? 2.4 : 1;
+    // ---- City skyline ----
+    ctx.fillStyle = "#242932";
+    var bx = [-10, 40, 78, 120, 150, 196, 250, 300, 470, 500];
+    var bh = [120, 165, 96, 140, 80, 130, 100, 150, 90, 130];
+    for (var c = 0; c < bx.length; c++) ctx.fillRect(bx[c], 372 - bh[c], (bx[c + 1] || W) - bx[c] - 4, bh[c] + 20);
+    // A tall lattice tower on the right (Tokyo-tower-ish, original).
+    drawTower(430, 214, 372);
+    // window speckle
+    ctx.fillStyle = "rgba(200,208,220,0.5)";
+    for (var wy = 262; wy < 366; wy += 10) for (var wx = 20; wx < 320; wx += 12)
+      if ((wx + wy) % 3 === 0) ctx.fillRect(wx, wy, 3, 4);
+
+    // ---- Parapet (foreground concrete) ----
+    ctx.fillStyle = "#b3b9c4"; ctx.fillRect(-20, 366, W + 40, H - 360);
+    ctx.fillStyle = "#8b929e"; ctx.fillRect(-20, 366, W + 40, 5);
+    ctx.strokeStyle = "#7c8390"; ctx.lineWidth = 2;
+    for (var sx = 26; sx < W; sx += 74) { ctx.beginPath(); ctx.moveTo(sx, 372); ctx.lineTo(sx, H); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(0, 420); ctx.lineTo(W, 420); ctx.stroke();
+    hatch(0, 366, W, H - 366, 8, 1, "rgba(60,66,76,0.22)");
+
+    // ---- Rifle (large, resting on the parapet, muzzle to the right) ----
+    drawSniperRifle();
+
+    // ---- Sniper (upper-left, sighting down the scope) ----
+    drawSniperHead(t);
+
+    // ---- Speech bubble: 有罪（ギルティ） ----
+    if (t > 10) drawGuiltyBubble(W - 92, 92, smooth(clamp((t - 10) / 8, 0, 1)));
+
+    // Entry flash.
+    if (t < 6) { ctx.fillStyle = "rgba(255,255,255," + (1 - t / 6) * 0.55 + ")"; ctx.fillRect(-30, -30, W + 60, H + 60); }
+
+    // Corner caption.
+    ctx.fillStyle = "rgba(10,11,14,0.82)"; ctx.fillRect(0, H - 24, 132, 24);
+    ctx.fillStyle = "#e6e9ef"; ctx.font = "bold 12px 'Courier New', monospace";
+    ctx.textAlign = "left"; ctx.fillText("OKB 13  NO MISS", 8, H - 8);
+    ctx.restore();
+  }
+
+  // -- gekiga helpers (all original vector art) --
+
+  function inkCloud(x, y, w, h) {
+    ctx.beginPath();
+    ctx.moveTo(x, y + h);
+    ctx.bezierCurveTo(x - w * 0.3, y + h * 0.2, x + w * 0.2, y - h, x + w * 0.5, y);
+    ctx.bezierCurveTo(x + w * 0.8, y - h * 0.9, x + w * 1.4, y + h * 0.4, x + w, y + h);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function hatch(x, y, w, h, gap, dir, color) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.strokeStyle = color; ctx.lineWidth = 1;
+    for (var i = -h; i < w + h; i += gap) {
       ctx.beginPath();
-      ctx.moveTo(fx + Math.cos(ang) * r0, fy + Math.sin(ang) * r0);
-      ctx.lineTo(fx + Math.cos(ang) * 780, fy + Math.sin(ang) * 780);
+      ctx.moveTo(x + i, y); ctx.lineTo(x + i + dir * h, y + h); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawTower(cx, top, base) {
+    ctx.strokeStyle = "#20242c"; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx, top); ctx.lineTo(cx - 34, base);      // left leg
+    ctx.moveTo(cx, top); ctx.lineTo(cx + 34, base);      // right leg
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    for (var i = 1; i < 6; i++) {
+      var y = top + (base - top) * (i / 6), wte = 6 + i * 5;
+      ctx.beginPath(); ctx.moveTo(cx - wte, y); ctx.lineTo(cx + wte, y); ctx.stroke();
+    }
+    ctx.fillStyle = "#20242c"; ctx.fillRect(cx - 3, top - 22, 6, 24); // mast
+  }
+
+  function drawSniperRifle() {
+    // Barrel.
+    ctx.fillStyle = "#14161c"; ctx.fillRect(300, 244, 168, 11);
+    ctx.fillStyle = "#3a404c"; ctx.fillRect(300, 245, 168, 2);      // top glint
+    // Muzzle brake.
+    ctx.fillStyle = "#0c0e13"; ctx.fillRect(452, 238, 36, 22);
+    ctx.fillStyle = "#cbd1db";
+    for (var m = 0; m < 3; m++) ctx.fillRect(458 + m * 10, 240, 3, 18); // slots
+    // Perforated handguard.
+    ctx.fillStyle = "#1b1f27"; ctx.fillRect(300, 234, 130, 30);
+    ctx.fillStyle = "#cbd1db";
+    for (var hgx = 312; hgx < 424; hgx += 18) { ctx.beginPath(); ctx.arc(hgx, 249, 5, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = "#1b1f27";
+    for (var hgx2 = 312; hgx2 < 424; hgx2 += 18) { ctx.beginPath(); ctx.arc(hgx2, 249, 2.4, 0, Math.PI * 2); ctx.fill(); }
+    // Receiver body.
+    ctx.fillStyle = "#1c212b"; ctx.fillRect(168, 236, 138, 46);
+    ctx.fillStyle = "#0e1116"; ctx.fillRect(168, 236, 138, 4);      // top rail
+    // Scope.
+    ctx.fillStyle = "#12151b"; ctx.fillRect(214, 214, 96, 16);     // tube
+    ctx.beginPath(); ctx.arc(214, 222, 12, 0, Math.PI * 2); ctx.fill(); // ocular bell
+    ctx.beginPath(); ctx.arc(312, 222, 13, 0, Math.PI * 2); ctx.fill(); // objective bell
+    ctx.fillStyle = "#3a404c"; ctx.fillRect(214, 216, 96, 2);
+    ctx.fillStyle = "#0e1116"; ctx.fillRect(238, 208, 10, 22); ctx.fillRect(276, 208, 10, 22); // rings
+    ctx.fillStyle = "#5b93b8"; ctx.beginPath(); ctx.arc(312, 222, 7, 0, Math.PI * 2); ctx.fill(); // lens glint
+    // Magazine.
+    ctx.fillStyle = "#161a22"; ctx.fillRect(196, 282, 34, 46);
+    // Bipod.
+    ctx.strokeStyle = "#0e1116"; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(360, 258); ctx.lineTo(338, 372); ctx.moveTo(360, 258); ctx.lineTo(392, 372); ctx.stroke();
+    ctx.lineWidth = 3; ctx.strokeStyle = "#3a404c";
+    ctx.beginPath(); ctx.moveTo(360, 258); ctx.lineTo(392, 372); ctx.stroke();
+    // Stock behind the shoulder.
+    ctx.fillStyle = "#161a22"; ctx.fillRect(120, 244, 52, 30);
+  }
+
+  function drawSniperHead(t) {
+    var H = canvas.height;
+    // Coat shoulders.
+    ctx.fillStyle = "#0e1015";
+    ctx.beginPath();
+    ctx.moveTo(0, H); ctx.lineTo(0, 300); ctx.lineTo(70, 262);
+    ctx.lineTo(150, 300); ctx.lineTo(210, 300); ctx.lineTo(230, H); ctx.closePath(); ctx.fill();
+    // Neck + jaw (pale).
+    ctx.fillStyle = "#dee2e9";
+    ctx.beginPath();
+    ctx.moveTo(64, 300); ctx.lineTo(150, 300); ctx.lineTo(196, 250);
+    ctx.lineTo(196, 236); ctx.lineTo(120, 208); ctx.lineTo(70, 232); ctx.closePath(); ctx.fill();
+    // Face profile (facing right toward the scope).
+    ctx.fillStyle = "#e7ebf1";
+    ctx.beginPath();
+    ctx.moveTo(70, 232);                 // hairline temple
+    ctx.lineTo(150, 214);
+    ctx.quadraticCurveTo(206, 214, 208, 236);   // brow to nose bridge
+    ctx.lineTo(214, 252);                // nose tip (near ocular)
+    ctx.lineTo(196, 258);                // under nose
+    ctx.lineTo(196, 286);                // lips/chin
+    ctx.lineTo(150, 300);
+    ctx.lineTo(96, 288);
+    ctx.closePath(); ctx.fill();
+    // Jaw/cheek shadow (hatched).
+    hatch(120, 250, 90, 52, 6, 1, "rgba(90,98,112,0.5)");
+    // Brow + stern eye sighting.
+    ctx.fillStyle = "#14161c";
+    ctx.fillRect(150, 236, 44, 5);                 // heavy brow
+    ctx.beginPath(); ctx.moveTo(168, 246); ctx.lineTo(190, 244);
+    ctx.lineTo(190, 251); ctx.lineTo(168, 252); ctx.closePath(); ctx.fill(); // narrowed eye
+    ctx.fillStyle = "#c9d0da"; ctx.fillRect(180, 246, 4, 3);        // cold catchlight
+    // Grim mouth.
+    ctx.strokeStyle = "#3a404c"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(168, 276); ctx.lineTo(192, 272); ctx.stroke();
+    // Blond swept hair (light with strand lines).
+    ctx.fillStyle = "#eef1f6";
+    ctx.beginPath();
+    ctx.moveTo(58, 250);
+    ctx.quadraticCurveTo(20, 150, 120, 150);
+    ctx.quadraticCurveTo(178, 150, 172, 210);
+    ctx.lineTo(150, 214); ctx.quadraticCurveTo(120, 196, 84, 214);
+    ctx.lineTo(70, 232); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#aeb5c1"; ctx.lineWidth = 1.5;
+    for (var s = 0; s < 8; s++) {
+      ctx.beginPath();
+      ctx.moveTo(60 + s * 13, 156 + (s % 2) * 6);
+      ctx.quadraticCurveTo(70 + s * 12, 190, 78 + s * 12, 220);
       ctx.stroke();
     }
-
-    // Halftone screentone in the lower shadow.
-    ctx.fillStyle = "rgba(0,0,0,0.5)";
-    for (var yy = H * 0.62; yy < H; yy += 9) {
-      for (var xx = 6; xx < W; xx += 9) {
-        ctx.beginPath(); ctx.arc(xx, yy, 2.2, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-
-    drawSniperFace(W * 0.46, H * 0.52, 1 + (1 - intro) * 0.12);
-
-    // "ギルティ" speech burst (pops in after ~14 frames).
-    if (t > 12) {
-      var pop = clamp((t - 12) / 8, 0, 1);
-      drawGuiltyBubble(W * 0.72, H * 0.30, smooth(pop));
-    }
-
-    // Bottom caption bar.
-    ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0, H - 30, W, 30);
-    ctx.fillStyle = "#e6d8b0"; ctx.font = "bold 13px 'Courier New', monospace";
-    ctx.textAlign = "left"; ctx.fillText("OKB 13", 12, H - 10);
-    ctx.textAlign = "right"; ctx.fillStyle = "#ff5a5a";
-    ctx.fillText("— NO MISS —", W - 12, H - 10);
-    ctx.textAlign = "left";
-    ctx.restore();
+    // Gloved hands on grip/foregrip.
+    ctx.fillStyle = "#14161c";
+    ctx.beginPath(); ctx.arc(186, 300, 20, 0, Math.PI * 2); ctx.fill();     // trigger hand
+    ctx.beginPath(); ctx.arc(300, 300, 18, 0, Math.PI * 2); ctx.fill();     // foregrip hand
+    ctx.fillStyle = "#2a2f3a"; ctx.fillRect(292, 268, 16, 34);             // forearm
   }
 
-  /** Stern ink portrait of the sniper (fedora, hard glare, rifle across). */
-  function drawSniperFace(cx, cy, sc) {
-    ctx.save();
-    ctx.translate(cx, cy); ctx.scale(sc, sc);
-
-    // Neck + shoulders (dark coat).
-    ctx.fillStyle = "#0c0d13";
-    ctx.beginPath();
-    ctx.moveTo(-120, 190); ctx.lineTo(-70, 70); ctx.lineTo(70, 70);
-    ctx.lineTo(130, 190); ctx.closePath(); ctx.fill();
-
-    // Face (angular, pale ink).
-    ctx.fillStyle = "#d9cdb4";
-    ctx.beginPath();
-    ctx.moveTo(-58, -70);      // temple
-    ctx.lineTo(58, -70);
-    ctx.lineTo(64, 6);         // cheekbone
-    ctx.lineTo(40, 66);        // jaw
-    ctx.lineTo(0, 96);         // chin
-    ctx.lineTo(-42, 62);
-    ctx.lineTo(-62, 0);
-    ctx.closePath(); ctx.fill();
-
-    // Cheek shadow (hatched side).
-    ctx.fillStyle = "rgba(30,22,16,0.55)";
-    ctx.beginPath();
-    ctx.moveTo(64, 6); ctx.lineTo(40, 66); ctx.lineTo(6, 92);
-    ctx.lineTo(24, 0); ctx.closePath(); ctx.fill();
-
-    // Fedora.
-    ctx.fillStyle = "#0e1120";
-    ctx.beginPath();
-    ctx.moveTo(-86, -60); ctx.quadraticCurveTo(0, -150, 86, -60);
-    ctx.quadraticCurveTo(70, -74, 0, -78);
-    ctx.quadraticCurveTo(-70, -74, -86, -60); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "#171a2c";                 // crown
-    ctx.beginPath();
-    ctx.moveTo(-52, -70); ctx.quadraticCurveTo(0, -140, 52, -70);
-    ctx.quadraticCurveTo(0, -96, -52, -70); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "#3a1420";                 // band
-    ctx.fillRect(-58, -74, 116, 7);
-
-    // Brow shadow.
-    ctx.fillStyle = "#20160f";
-    ctx.fillRect(-56, -30, 112, 10);
-
-    // Eyes — hard glare.
-    ctx.fillStyle = "#111";
-    ctx.beginPath(); ctx.moveTo(-46, -18); ctx.lineTo(-14, -12);
-    ctx.lineTo(-16, -2); ctx.lineTo(-46, -8); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(46, -18); ctx.lineTo(14, -12);
-    ctx.lineTo(16, -2); ctx.lineTo(46, -8); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "#ff5a5a";                 // menacing glint
-    ctx.fillRect(-34, -14, 5, 4); ctx.fillRect(24, -14, 5, 4);
-
-    // Nose + grim mouth.
-    ctx.strokeStyle = "#5a4636"; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(2, -8); ctx.lineTo(-8, 30); ctx.lineTo(4, 34); ctx.stroke();
-    ctx.strokeStyle = "#20160f"; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(-26, 56); ctx.lineTo(26, 52); ctx.stroke();
-
-    // Rifle across the lower frame + gloved hand.
-    ctx.save();
-    ctx.rotate(-0.32);
-    ctx.fillStyle = "#0a0c12"; ctx.fillRect(-170, 120, 300, 16);   // barrel
-    ctx.fillStyle = "#171b28"; ctx.fillRect(-40, 108, 70, 40);      // scope/receiver
-    ctx.fillStyle = "#2a2f42"; ctx.fillRect(-150, 116, 40, 6);      // highlight
-    ctx.restore();
-    ctx.fillStyle = "#14161f";
-    ctx.beginPath(); ctx.arc(-6, 150, 22, 0, Math.PI * 2); ctx.fill(); // hand
-
-    ctx.restore();
-  }
-
-  /** Jagged manga speech burst reading "ギルティ". */
+  /** Oval manga bubble reading "有罪（ギルティ）". */
   function drawGuiltyBubble(cx, cy, sc) {
     if (sc <= 0) return;
     ctx.save();
     ctx.translate(cx, cy); ctx.scale(sc, sc);
-    var spikes = 14, rO = 92, rI = 66;
     ctx.beginPath();
-    for (var i = 0; i < spikes * 2; i++) {
-      var ang = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
-      var rr = i % 2 === 0 ? rO : rI;
-      var x = Math.cos(ang) * rr * 1.15, y = Math.sin(ang) * rr * 0.8;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    ctx.fillStyle = "#f7f2e6"; ctx.fill();
-    ctx.lineWidth = 4; ctx.strokeStyle = "#111"; ctx.stroke();
-    ctx.fillStyle = "#111";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.font = "bold 34px 'Courier New', sans-serif";
-    ctx.fillText("ギルティ", 0, 2);
-    ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+    ctx.ellipse(0, 0, 76, 58, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#f6f7fa"; ctx.fill();
+    ctx.lineWidth = 3.5; ctx.strokeStyle = "#111"; ctx.stroke();
+    // tail toward the sniper (lower-left).
+    ctx.beginPath();
+    ctx.moveTo(-40, 34); ctx.lineTo(-92, 96); ctx.lineTo(-20, 44); ctx.closePath();
+    ctx.fillStyle = "#f6f7fa"; ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#111"; ctx.textAlign = "center";
+    ctx.font = "bold 34px 'Yu Mincho','Hiragino Mincho ProN',serif";
+    ctx.fillText("有罪", 0, -2);
+    ctx.font = "bold 15px 'Hiragino Kaku Gothic ProN',sans-serif";
+    ctx.fillText("（ギルティ）", 0, 30);
+    ctx.textAlign = "left";
     ctx.restore();
   }
 
@@ -869,7 +979,7 @@
       game.stage = dbg.stage;
       game.pendingLoadout = dbg.weapon;
       if (global.Sound) global.Sound.resume();
-      loadStage();
+      beginWithLoadout(loadStage);
     });
   }
 
@@ -887,7 +997,8 @@
   startBtn.addEventListener("click", startGame);
   window.addEventListener("keydown", function (e) {
     if (e.code === "Enter") {
-      if (game.state === STATE.STAGECLEAR) nextStage();
+      if (pendingProceed) { var f = pendingProceed; pendingProceed = null; f(); }
+      else if (game.state === STATE.STAGECLEAR) nextStage();
       else if (game.state !== STATE.PLAY) startGame();
     }
     if (e.code === "KeyM") toggleSound();
