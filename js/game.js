@@ -33,7 +33,7 @@
   var guiltyReady = false;
   guiltyImg.onload = function () { guiltyReady = true; };
   guiltyImg.onerror = function () { guiltyReady = false; };
-  guiltyImg.src = "assets/guilty.png";
+  guiltyImg.src = global.GUILTY_IMG_SRC || "assets/guilty.png";
 
   var STATE = { MENU: 0, PLAY: 1, DEAD: 2, WIN: 3, OVER: 4, STAGECLEAR: 5 };
 
