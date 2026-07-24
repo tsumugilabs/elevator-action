@@ -89,7 +89,10 @@
                            setTimeout(function () { blip({ type: "square", f0: 520, dur: 0.1, gain: 0.2 }); }, 150); },
     miss:    function () { blip({ type: "sawtooth", f0: 440, f1: 55, dur: 0.6, gain: 0.28 }); },
     win:     function () { arpeggio([523, 659, 784, 1047, 1319], 0.15, "square"); },
-    over:    function () { arpeggio([392, 330, 262, 196], 0.24, "sawtooth"); }
+    over:    function () { arpeggio([392, 330, 262, 196], 0.24, "sawtooth"); },
+    powerup: function () { arpeggio([784, 988, 1319, 1568], 0.08, "square"); },
+    block:   function () { blip({ type: "square", f0: 220, f1: 140, dur: 0.12, gain: 0.24 });
+                           noiseBurst(0.08, 0.18); }
   };
 
   function play(name) { if (SFX[name]) SFX[name](); }

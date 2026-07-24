@@ -101,6 +101,8 @@
     this.invuln = 0;          // frames of spawn invulnerability
     this.animT = 0;           // walk-cycle timer
     this.muzzle = 0;          // frames the muzzle flash stays lit
+    this.mgTimer = 0;         // machine-gun power-up: frames remaining
+    this.armor = 0;           // bulletproof-vest hits remaining
   };
   Player.prototype.hurtBox = function () {
     // Crouching shrinks the vertical hurt box.
@@ -125,15 +127,18 @@
     applyGravity(this);
     moveAndCollide(this, solids);
 
+    // Machine gun: hold to auto-fire fast. Otherwise: one shot per press.
     if (this.shootCd > 0) this.shootCd--;
-    if (input.pressed("shoot") && this.shootCd === 0) {
+    var wantShot = this.mgTimer > 0 ? input.held("shoot") : input.pressed("shoot");
+    if (wantShot && this.shootCd === 0) {
       var by = this.y + (this.crouching ? 16 : 8);
       var bx = this.dir > 0 ? this.x + this.w : this.x - 6;
       bullets.push(new Bullet(bx, by, this.dir, true));
-      this.shootCd = 12;
+      this.shootCd = this.mgTimer > 0 ? 5 : 12;
       this.muzzle = 5;
       if (global.Sound) global.Sound.play("shoot");
     }
+    if (this.mgTimer > 0) this.mgTimer--;
 
     if (this.invuln > 0) this.invuln--;
     if (this.muzzle > 0) this.muzzle--;
@@ -178,16 +183,29 @@
       ctx.fillStyle = P.coat;   px(ctx, x + 2, y + 11, 12, 13);
       ctx.fillStyle = P.coatDk; px(ctx, x + 2, y + 11, 3, 13);
       ctx.fillStyle = P.scarf;  px(ctx, x + 6, y + 11, 5, 2);
+      // Bulletproof vest overlay while armored.
+      if (this.armor > 0) {
+        ctx.fillStyle = "#2fbf6b";   px(ctx, x + 4, y + 13, 8, 9);
+        ctx.fillStyle = "#1c8f4d";   px(ctx, x + 4, y + 13, 2, 9);
+      }
       // Head + eye.
       ctx.fillStyle = P.skin;   px(ctx, x + 4, y + 5, 8, 6);
       ctx.fillStyle = P.hat;    px(ctx, x + 9, y + 7, 2, 2);
       // Fedora.
       ctx.fillStyle = P.hat;    px(ctx, x + 2, y + 3, 12, 3); px(ctx, x + 4, y, 9, 3);
       ctx.fillStyle = P.band;   px(ctx, x + 4, y + 3, 9, 1);
-      // Outstretched gun arm.
+      // Outstretched gun arm — bulkier and steel-grey when machine-gunning.
       ctx.fillStyle = P.coat;   px(ctx, x + 11, y + 13, 4, 3);
-      ctx.fillStyle = P.gun;    px(ctx, x + 14, y + 13, 4, 3);
-      if (this.muzzle > 0) { ctx.fillStyle = P.flash; px(ctx, x + 18, y + 12, 3, 5); }
+      if (this.mgTimer > 0) {
+        ctx.fillStyle = "#8a93a6"; px(ctx, x + 14, y + 12, 6, 5);
+        ctx.fillStyle = "#3a3f4d"; px(ctx, x + 14, y + 16, 3, 2); // magazine
+      } else {
+        ctx.fillStyle = P.gun;    px(ctx, x + 14, y + 13, 4, 3);
+      }
+      if (this.muzzle > 0) {
+        ctx.fillStyle = P.flash;
+        px(ctx, this.mgTimer > 0 ? x + 20 : x + 18, y + 12, 3, 5);
+      }
     }
     ctx.restore();
   };
@@ -302,10 +320,52 @@
     ctx.restore();
   };
 
+  // ---- Item (power-up drop) ----------------------------------------------
+
+  function Item(x, y, type) {
+    this.w = 16; this.h = 14;
+    this.x = x; this.y = y;
+    this.vx = 0; this.vy = -2.5;        // small pop, then falls
+    this.type = type;                   // "machinegun" | "vest"
+    this.dead = false;
+    this.life = 660;                    // ~11s before it fades
+    this.bob = Math.random() * 6;
+  }
+  Item.prototype.update = function (solids) {
+    this.vy += 0.4; if (this.vy > 7) this.vy = 7;
+    this.y += this.vy;
+    for (var i = 0; i < solids.length; i++) {
+      var s = solids[i];
+      if (this.x < s.x + s.w && this.x + this.w > s.x &&
+          this.y < s.y + s.h && this.y + this.h > s.y && this.vy > 0) {
+        this.y = s.y - this.h; this.vy = 0;
+      }
+    }
+    this.bob++;
+    if (--this.life <= 0) this.dead = true;
+  };
+  Item.prototype.draw = function (ctx) {
+    if (this.life < 120 && Math.floor(this.life / 6) % 2 === 0) return; // fade blink
+    var x = this.x, y = this.y + Math.sin(this.bob / 10) * 1.5;
+    // Crate.
+    ctx.fillStyle = "#0c0f18"; px(ctx, x - 1, y - 1, this.w + 2, this.h + 2);
+    if (this.type === "machinegun") {
+      ctx.fillStyle = "#caa23a"; px(ctx, x, y, this.w, this.h);   // gold crate
+      ctx.fillStyle = "#20242e"; px(ctx, x + 2, y + 6, 12, 3);     // gun body
+      ctx.fillStyle = "#20242e"; px(ctx, x + 3, y + 9, 3, 3);      // magazine
+      ctx.fillStyle = "#3a3f4d"; px(ctx, x + 11, y + 4, 3, 2);     // sight
+    } else {
+      ctx.fillStyle = "#2fbf6b"; px(ctx, x, y, this.w, this.h);    // green crate
+      ctx.fillStyle = "#eafff2"; px(ctx, x + 4, y + 3, 8, 8);      // vest body
+      ctx.fillStyle = "#2fbf6b"; px(ctx, x + 7, y + 3, 2, 8);      // vest seam
+    }
+  };
+
   global.Entities = {
     Player: Player,
     Enemy: Enemy,
     Bullet: Bullet,
+    Item: Item,
     overlaps: overlaps,
     moveAndCollide: moveAndCollide
   };

@@ -21,7 +21,8 @@
     docs: document.getElementById("hud-docs"),
     docsTotal: document.getElementById("hud-docs-total"),
     lives: document.getElementById("hud-lives"),
-    stage: document.getElementById("hud-stage")
+    stage: document.getElementById("hud-stage"),
+    power: document.getElementById("hud-power")
   };
 
   var STATE = { MENU: 0, PLAY: 1, DEAD: 2, WIN: 3, OVER: 4, STAGECLEAR: 5 };
@@ -45,6 +46,7 @@
     player: null,
     enemies: [],
     bullets: [],
+    items: [],
     camY: 0,
     score: 0,
     hi: Number(localStorage.getItem("ea_hi") || 0),
@@ -74,6 +76,7 @@
     game.player = new Entities.Player(game.level.playerStart.x, game.level.playerStart.y);
     game.enemies = [];
     game.bullets = [];
+    game.items = [];
     game.docs = 0;
     game.camY = 0;
     game.state = STATE.PLAY;
@@ -219,6 +222,7 @@
 
     updateBullets();
     resolveHits();
+    updateItems(player);
 
     // Reached the exit with every document → clear the stage.
     if (game.docs >= level.totalDocs &&
@@ -349,22 +353,22 @@
             bl.dead = true;
             addScore(300);
             if (global.Sound) global.Sound.play("explode");
+            maybeDropItem(foe.x + foe.w / 2 - 8, foe.y);
             break;
           }
         }
       } else if (player.invuln === 0 && Entities.overlaps(bl, player.hurtBox())) {
         bl.dead = true;
-        loseLife();
-        return;
+        if (hitPlayer()) return;      // returns true if it cost a life (respawn)
       }
     }
 
-    // Touching an enemy is lethal too.
+    // Touching an enemy hurts too.
     if (player.invuln === 0) {
       for (var e = 0; e < game.enemies.length; e++) {
         if (!game.enemies[e].dead &&
             Entities.overlaps(player.hurtBox(), game.enemies[e])) {
-          loseLife();
+          if (hitPlayer()) break;
           break;
         }
       }
@@ -372,6 +376,50 @@
 
     game.enemies = game.enemies.filter(function (x) { return !x.dead; });
     game.bullets = game.bullets.filter(function (x) { return !x.dead; });
+  }
+
+  /** Apply damage to the player: a vest hit is absorbed; otherwise a life is
+   *  lost. Returns true only when it cost a life (so callers can stop). */
+  function hitPlayer() {
+    var p = game.player;
+    if (p.invuln > 0) return false;
+    if (p.armor > 0) {
+      p.armor--;
+      p.invuln = 45;
+      flash("BLOCK!");
+      if (global.Sound) global.Sound.play("block");
+      syncHud();
+      return false;
+    }
+    loseLife();
+    return true;
+  }
+
+  var DROP_CHANCE = 0.30;
+  function maybeDropItem(x, y) {
+    if (Math.random() >= DROP_CHANCE) return;
+    var type = Math.random() < 0.5 ? "machinegun" : "vest";
+    game.items.push(new Entities.Item(x, y, type));
+  }
+
+  function updateItems(player) {
+    for (var i = 0; i < game.items.length; i++) {
+      var it = game.items[i];
+      it.update(game.level.staticSolids);
+      if (!it.dead && Entities.overlaps(player.hurtBox(), it)) {
+        applyItem(it.type);
+        it.dead = true;
+      }
+    }
+    game.items = game.items.filter(function (x) { return !x.dead; });
+  }
+
+  function applyItem(type) {
+    var p = game.player;
+    if (type === "machinegun") { p.mgTimer = 600; flash("MACHINE GUN!"); }
+    else { p.armor = 3; flash("VEST x3"); }
+    if (global.Sound) global.Sound.play("powerup");
+    syncHud();
   }
 
   function updateCamera() {
@@ -391,6 +439,7 @@
     ctx.translate(0, -Math.round(game.camY));
 
     game.level.draw(ctx);
+    for (var it = 0; it < game.items.length; it++) game.items[it].draw(ctx);
     for (var e = 0; e < game.enemies.length; e++) game.enemies[e].draw(ctx);
     for (var b = 0; b < game.bullets.length; b++) game.bullets[b].draw(ctx);
     if (game.state === STATE.PLAY || game.state === STATE.DEAD) {
@@ -418,6 +467,13 @@
     hud.docs.textContent = game.docs;
     hud.lives.textContent = Math.max(0, game.lives);
     if (hud.stage) hud.stage.textContent = game.stage + 1;
+    if (hud.power) {
+      var parts = [];
+      var p = game.player;
+      if (p && p.mgTimer > 0) parts.push("🔫" + Math.ceil(p.mgTimer / 60));
+      if (p && p.armor > 0) parts.push("🛡" + p.armor);
+      hud.power.textContent = parts.join(" ");
+    }
   }
 
   function showOverlay(won) {
