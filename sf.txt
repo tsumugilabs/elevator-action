@@ -1,0 +1,1 @@
+{"r":{"state":1,"mines":8,"stairs":5,"elevL":1,"elevR":2.1},"afterMine":{"mines":8,"placed":0},"errors":[]}

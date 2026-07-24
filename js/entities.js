@@ -104,6 +104,9 @@
     this.mg = false;          // machine-gun power-up: held until hit
     this.armor = 0;           // bulletproof-vest hits remaining
     this.okb = 0;             // OKB 13 sniper rounds remaining
+    this.mines = 0;           // landmines remaining to deploy
+    this.mineCd = 0;          // deploy cooldown
+    this.onStair = null;      // active stair traversal, if any
   };
   Player.prototype.hurtBox = function () {
     // Crouching shrinks the vertical hurt box.
@@ -129,8 +132,10 @@
     moveAndCollide(this, solids);
 
     // Machine gun: hold to auto-fire fast. Otherwise: one shot per press.
+    // (While carrying landmines, the shoot button deploys a mine instead —
+    // handled in the main loop — so no bullet is fired here.)
     if (this.shootCd > 0) this.shootCd--;
-    var wantShot = this.mg ? input.held("shoot") : input.pressed("shoot");
+    var wantShot = this.mines <= 0 && (this.mg ? input.held("shoot") : input.pressed("shoot"));
     if (wantShot && this.shootCd === 0) {
       var by = this.y + (this.crouching ? 16 : 8);
       var bx = this.dir > 0 ? this.x + this.w : this.x - 6;
@@ -361,11 +366,35 @@
     }
   };
 
+  // ---- Landmine ----------------------------------------------------------
+
+  function Mine(x, y) {
+    this.w = 16; this.h = 7;
+    this.x = x; this.y = y;
+    this.arm = 24;            // frames until armed (can't hurt while blinking in)
+    this.dead = false;
+    this.blast = 46;          // kill radius once triggered
+  }
+  Mine.prototype.update = function () { if (this.arm > 0) this.arm--; };
+  Mine.prototype.armed = function () { return this.arm <= 0; };
+  Mine.prototype.draw = function (ctx) {
+    var x = this.x, y = this.y;
+    ctx.fillStyle = "#20242e"; px(ctx, x, y + 2, this.w, this.h - 2);   // casing
+    ctx.fillStyle = "#3a3f4d"; px(ctx, x + 2, y + this.h - 1, this.w - 4, 1);
+    // Prongs.
+    ctx.fillStyle = "#4a5060"; px(ctx, x + 3, y, 2, 3); px(ctx, x + this.w - 5, y, 2, 3);
+    // Blinking indicator (steady red once armed).
+    var on = this.armed() ? true : Math.floor(this.arm / 3) % 2 === 0;
+    ctx.fillStyle = on ? "#ff3b3b" : "#5a1414";
+    px(ctx, x + this.w / 2 - 1, y + 1, 3, 3);
+  };
+
   global.Entities = {
     Player: Player,
     Enemy: Enemy,
     Bullet: Bullet,
     Item: Item,
+    Mine: Mine,
     overlaps: overlaps,
     moveAndCollide: moveAndCollide
   };

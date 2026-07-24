@@ -145,6 +145,30 @@ canvas#game {
 .okb-note { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .okb-step b, .okb-note b { color: var(--accent); }
 
+/* Game-over buttons + continue. */
+.over-btns { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+#continue-btn { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+#continue-btn small { font-size: 10px; letter-spacing: 1px; opacity: 0.8; margin-top: 2px; }
+button.secondary {
+  font-size: 14px; letter-spacing: 1px; padding: 8px 20px;
+  background: transparent; color: var(--muted); border: 1px solid #3a456a; box-shadow: none;
+}
+
+/* Continue taunt screen. */
+.taunt { max-width: 380px; padding: 0 10px; }
+.taunt-label {
+  color: var(--accent); letter-spacing: 4px; font-size: 13px; margin: 0 0 20px;
+}
+.taunt-en {
+  font-size: 20px; line-height: 1.5; color: var(--text); margin: 0 0 18px;
+  font-family: Georgia, "Times New Roman", serif;
+}
+.taunt-jp {
+  font-size: 15px; line-height: 1.7; color: var(--muted); margin: 0;
+  opacity: 0; transition: opacity 1.2s ease;
+}
+.taunt-jp.show { opacity: 1; }
+
 .overlay {
   position: absolute;
   inset: 0;

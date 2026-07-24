@@ -35,7 +35,27 @@
   guiltyImg.onerror = function () { guiltyReady = false; };
   guiltyImg.src = global.GUILTY_IMG_SRC || "assets/guilty.png";
 
-  var STATE = { MENU: 0, PLAY: 1, DEAD: 2, WIN: 3, OVER: 4, STAGECLEAR: 5 };
+  var STATE = { MENU: 0, PLAY: 1, DEAD: 2, WIN: 3, OVER: 4, STAGECLEAR: 5, TAUNT: 6 };
+
+  // Continue-screen taunts (author-supplied). English shows first; the Japanese
+  // translation fades in after 3s.
+  var TAUNTS = [
+    { en: "Harder than your job today?", jp: "今日の君の仕事より難しかった？" },
+    { en: "Gameplay Tip! The jump button isn't on your butt… unless that's how you play?", jp: "操作のヒント！ジャンプボタンはお尻にありません！……でも、まさかあなたの場合……？" },
+    { en: "The enemies must really like you. They keep meeting you.", jp: "敵は君のことが大好きみたいですね。何度も会いに来てますよ。" },
+    { en: "Was that dodge… or were you aiming for the hit?", jp: "その回避、わざと当たりに行きました？" },
+    { en: "Don't worry. That failure has been safely recorded.", jp: "安心してください。今の失敗はちゃんと記録されています。" },
+    { en: "Trying to unlock every Game Over animation?", jp: "ゲームオーバーの演出、全部コンプリートする気ですか？" },
+    { en: "The enemy AI says, \"Thanks!\"", jp: "敵AIから『ありがとうございます』と伝言です。" },
+    { en: "Lowering the difficulty won't lower your pride. Probably.", jp: "難易度を下げてもプライドは減りません。たぶん。" },
+    { en: "Going down. Along with your reputation.", jp: "下へ参ります。あなたの評価と一緒に。" },
+    { en: "The elevator can go up. Your skill cannot.", jp: "エレベーターは上がれます。あなたの腕前は上がりません。" },
+    { en: "Back to the bottom floor. You seem quite at home there.", jp: "また最下階です。ずいぶん居心地が良さそうですね。" },
+    { en: "Was it your body caught in the doors, or your judgment?", jp: "ドアに挟まれたのは体ですか？ 判断力ですか？" },
+    { en: "A message from security: they'll be waiting in the same spot next time.", jp: "警備員から伝言です。次も同じ場所で待っているそうです。" },
+    { en: "There is no emergency button. You are the emergency.", jp: "非常ボタンはありません。あなた自身が非常事態なので。" },
+    { en: "Bodies are transported to the basement. Conveniently, that's your next stop.", jp: "死体の搬送先は地下です。ちょうど次の目的地ですね。" }
+  ];
 
   // Per-stage difficulty. `shooters`: how many enemies may fire —
   // 0 none, "lowest1" one agent spawned on the lowest floor, N a numeric cap,
@@ -57,6 +77,8 @@
     enemies: [],
     bullets: [],
     items: [],
+    mines: [],
+    blasts: [],
     camY: 0,
     score: 0,
     hi: Number(localStorage.getItem("ea_hi") || 0),
@@ -65,6 +87,8 @@
     stage: 0,
     pendingLoadout: null,   // loadout chosen on the stage-clear screen
     snipe: null,            // active OKB 13 sniper-kill animation
+    taunt: null,            // active continue taunt
+    tauntTimer: 0,
     msg: "",
     msgTimer: 0,
     spawnTimer: 0        // spawn-director countdown
@@ -90,6 +114,8 @@
     game.enemies = [];
     game.bullets = [];
     game.items = [];
+    game.mines = [];
+    game.blasts = [];
     game.docs = 0;
     game.camY = 0;
     game.snipe = null;
@@ -100,6 +126,7 @@
     if (game.pendingLoadout === "machinegun") game.player.mg = true;
     else if (game.pendingLoadout === "vest") game.player.armor = 3;
     else if (game.pendingLoadout === "okb") game.player.okb = Infinity;  // unlimited (for now)
+    else if (game.pendingLoadout === "mine") game.player.mines = 8;
     game.pendingLoadout = null;
 
     overlay.classList.add("hidden");
@@ -139,6 +166,7 @@
     var choices =
       '<button class="loadout" data-load="machinegun">🔫 マシンガン</button>' +
       '<button class="loadout" data-load="vest">🛡 防弾チョッキ</button>' +
+      '<button class="loadout" data-load="mine">💣 地雷</button>' +
       (okbEligible ? '<button class="loadout okb" data-load="okb">🎯 OKB 13</button>' : '') +
       '<button class="loadout none" data-load="none">なし</button>';
     overlay.classList.remove("hidden");
@@ -214,6 +242,17 @@
   function update() {
     if (game.msgTimer > 0) game.msgTimer--;
 
+    // Continue taunt: EN for 3s, then the JP translation fades in; resume at 6s.
+    if (game.state === STATE.TAUNT) {
+      game.tauntTimer++;
+      if (game.tauntTimer === 180) {
+        var jp = document.getElementById("taunt-jp");
+        if (jp) jp.classList.add("show");
+      }
+      if (game.tauntTimer >= 360) { game.lives = 2; loadStage(); }  // keep score/stage
+      return;
+    }
+
     // OKB 13: time freezes during the sniper-kill sequence.
     if (game.snipe) { updateSnipe(); return; }
     if (game.state !== STATE.PLAY) return;
@@ -226,8 +265,14 @@
     // Collide only against static geometry; elevators are handled separately
     // as ride-on-top platforms so a rider can never be shoved sideways.
     var solids = level.staticSolids;
-    player.update(Input, solids, game.bullets);
-    if (rideElevators(player, true)) return;   // returns true if crushed → died
+    if (player.onStair) {
+      advanceStair(player);                    // scripted stair traversal
+    } else {
+      player.update(Input, solids, game.bullets);
+      if (rideElevators(player, true)) return; // returns true if crushed → died
+      tryStairs(player, level);
+      tryDeployMine(player);
+    }
 
     // Doors: collect docs on contact; enemy doors start a telegraph instead
     // of spawning instantly, so the player gets a warning first.
@@ -275,6 +320,8 @@
     updateBullets();
     resolveHits();
     updateItems(player);
+    updateMines();
+    updateBlasts();
 
     // Reached the exit with every document → clear the stage.
     if (game.docs >= level.totalDocs &&
@@ -481,6 +528,99 @@
     syncHud();
   }
 
+  // ---- Landmines ----------------------------------------------------------
+
+  function tryDeployMine(player) {
+    if (player.mines <= 0) return;
+    if (player.mineCd > 0) { player.mineCd--; return; }
+    if (Input.pressed("shoot")) {
+      var mx = player.x + player.w / 2 - 8;
+      game.mines.push(new Entities.Mine(mx, player.y + player.h - 7));
+      player.mines--;
+      player.mineCd = 14;
+      if (global.Sound) global.Sound.play("jump");
+      syncHud();
+    }
+  }
+
+  function updateMines() {
+    for (var i = 0; i < game.mines.length; i++) {
+      var m = game.mines[i];
+      m.update();
+      if (!m.armed()) continue;
+      for (var e = 0; e < game.enemies.length; e++) {
+        var foe = game.enemies[e];
+        if (!foe.dead && Entities.overlaps(m, foe)) { detonate(m); break; }
+      }
+    }
+    game.mines = game.mines.filter(function (x) { return !x.dead; });
+  }
+
+  function detonate(m) {
+    m.dead = true;
+    var cx = m.x + m.w / 2, cy = m.y + m.h / 2;
+    game.blasts.push({ x: cx, y: cy, r: 6, max: m.blast, t: 0 });
+    if (global.Sound) global.Sound.play("explode");
+    // Kill every agent within the blast radius.
+    for (var e = 0; e < game.enemies.length; e++) {
+      var foe = game.enemies[e];
+      if (foe.dead) continue;
+      var dx = (foe.x + foe.w / 2) - cx, dy = (foe.y + foe.h / 2) - cy;
+      if (dx * dx + dy * dy <= m.blast * m.blast) { foe.dead = true; addScore(300); }
+    }
+    // A player caught in the blast takes a hit too (mind your own mines).
+    var p = game.player;
+    if (p.invuln === 0) {
+      var pdx = (p.x + p.w / 2) - cx, pdy = (p.y + p.h / 2) - cy;
+      if (pdx * pdx + pdy * pdy <= m.blast * m.blast) hitPlayer();
+    }
+    game.enemies = game.enemies.filter(function (x) { return !x.dead; });
+    syncHud();
+  }
+
+  function updateBlasts() {
+    for (var i = 0; i < game.blasts.length; i++) {
+      var bl = game.blasts[i];
+      bl.t++;
+      bl.r = bl.max * Math.min(1, bl.t / 10);
+      if (bl.t > 22) bl.done = true;
+    }
+    game.blasts = game.blasts.filter(function (x) { return !x.done; });
+  }
+
+  // ---- Stairs -------------------------------------------------------------
+
+  function tryStairs(player, level) {
+    if (!player.onGround) return;
+    var pcx = player.x + player.w / 2, feet = player.y + player.h;
+    for (var i = 0; i < level.stairs.length; i++) {
+      var s = level.stairs[i];
+      if (Math.abs(feet - (s.topY + player.h)) < 8 &&
+          Math.abs(pcx - (s.topX + player.w / 2)) < 16 && Input.pressed("down")) {
+        player.onStair = { fromX: s.topX, fromY: s.topY, toX: s.botX, toY: s.botY, t: 0, dur: 24 };
+        return;
+      }
+      if (Math.abs(feet - (s.botY + player.h)) < 8 &&
+          Math.abs(pcx - (s.botX + player.w / 2)) < 16 && Input.pressed("up")) {
+        player.onStair = { fromX: s.botX, fromY: s.botY, toX: s.topX, toY: s.topY, t: 0, dur: 24 };
+        return;
+      }
+    }
+  }
+
+  function advanceStair(player) {
+    var s = player.onStair;
+    s.t++;
+    var u = smooth(s.t / s.dur);
+    player.x = s.fromX + (s.toX - s.fromX) * u;
+    player.y = s.fromY + (s.toY - s.fromY) * u;
+    player.vx = 0; player.vy = 0;
+    if (s.t >= s.dur) {
+      player.x = s.toX; player.y = s.toY;
+      player.onGround = true; player.onStair = null;
+    }
+  }
+
   // ---- OKB 13 (tap-to-snipe) ---------------------------------------------
 
   // ~3s dramatic sequence + a ~0.75s afterglow: slow zoom, lock-on,
@@ -560,10 +700,12 @@
     ctx.translate(0, -Math.round(game.camY));
 
     game.level.draw(ctx);
+    for (var mi = 0; mi < game.mines.length; mi++) game.mines[mi].draw(ctx);
     for (var it = 0; it < game.items.length; it++) game.items[it].draw(ctx);
     for (var e = 0; e < game.enemies.length; e++) game.enemies[e].draw(ctx);
     for (var b = 0; b < game.bullets.length; b++) game.bullets[b].draw(ctx);
     if (game.state === STATE.PLAY) game.player.draw(ctx);
+    drawBlasts(ctx);
 
     ctx.restore();
 
@@ -592,6 +734,19 @@
       ctx.globalAlpha = 1; ctx.textAlign = "left";
     }
     ctx.restore();
+  }
+
+  function drawBlasts(ctx) {
+    for (var i = 0; i < game.blasts.length; i++) {
+      var b = game.blasts[i];
+      var a = clamp(1 - b.t / 22, 0, 1);
+      ctx.fillStyle = "rgba(255,180,60," + (a * 0.5) + ")";
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,90,40," + a + ")";
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255," + a + ")";
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.25, 0, Math.PI * 2); ctx.fill();
+    }
   }
 
   function snipeZoom(s) {
@@ -938,17 +1093,43 @@
       if (p && p.mg) parts.push("🔫");
       if (p && p.armor > 0) parts.push("🛡" + p.armor);
       if (p && p.okb > 0) parts.push("🎯" + (p.okb === Infinity ? "∞" : p.okb));
+      if (p && p.mines > 0) parts.push("💣" + p.mines);
       hud.power.textContent = parts.join(" ");
     }
   }
 
   function showOverlay(won) {
     overlay.classList.remove("hidden");
+    var cont = won ? "" :
+      '<button id="continue-btn">CONTINUE<small>ステージ再開</small></button>';
     overlay.innerHTML =
       '<h1>' + (won ? "MISSION COMPLETE" : "GAME OVER") + '</h1>' +
       '<p class="subtitle">SCORE ' + game.score + ' &nbsp;/&nbsp; HI ' + game.hi + '</p>' +
-      '<button id="start-btn">' + (won ? "PLAY AGAIN" : "RETRY") + '</button>';
+      '<div class="over-btns">' + cont +
+      '<button id="start-btn" class="' + (won ? "" : "secondary") + '">' +
+      (won ? "PLAY AGAIN" : "1面から") + '</button></div>';
     document.getElementById("start-btn").addEventListener("click", startGame);
+    var cb = document.getElementById("continue-btn");
+    if (cb) cb.addEventListener("click", continueGame);
+  }
+
+  // Continue from the current stage, preceded by a 6s taunt (EN, then JP).
+  function continueGame() {
+    game.taunt = TAUNTS[Math.floor(Math.random() * TAUNTS.length)];
+    game.tauntTimer = 0;
+    game.state = STATE.TAUNT;
+    if (global.Sound) global.Sound.stopMusic();
+    overlay.classList.remove("hidden");
+    overlay.innerHTML =
+      '<div class="taunt">' +
+        '<p class="taunt-label">CONTINUE?</p>' +
+        '<p class="taunt-en">' + escapeHtml(game.taunt.en) + '</p>' +
+        '<p class="taunt-jp" id="taunt-jp">' + escapeHtml(game.taunt.jp) + '</p>' +
+      '</div>';
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   // ---- Debug menu ---------------------------------------------------------
@@ -958,6 +1139,7 @@
     { id: "none", label: "なし" },
     { id: "machinegun", label: "🔫 マシンガン" },
     { id: "vest", label: "🛡 防弾チョッキ" },
+    { id: "mine", label: "💣 地雷" },
     { id: "okb", label: "🎯 OKB 13" }
   ];
 
@@ -1020,6 +1202,7 @@
     if (e.code === "Enter") {
       if (pendingProceed) { var f = pendingProceed; pendingProceed = null; f(); }
       else if (game.state === STATE.STAGECLEAR) nextStage();
+      else if (game.state === STATE.TAUNT) { /* let the taunt play out */ }
       else if (game.state !== STATE.PLAY) startGame();
     }
     if (e.code === "KeyM") toggleSound();

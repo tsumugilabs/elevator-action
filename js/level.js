@@ -27,16 +27,17 @@
     return false;
   }
 
-  function Elevator(shaftX) {
+  function Elevator(shaftX, speed) {
     this.w = SHAFT_W - 8;
     this.h = 12;
     this.x = shaftX + 4;
+    this.speed = speed || 1.2;         // left/right shafts run at different speeds
     this.minY = FLOOR_H - SLAB_H - this.h + 2;
     // Descend all the way to the basement floor so a player who drops down to
     // the exit can always ride back up (otherwise they'd be soft-locked).
     this.maxY = WORLD_H - SLAB_H - this.h;
     this.y = this.minY + Math.random() * (this.maxY - this.minY);
-    this.vy = (Math.random() < 0.5 ? -1 : 1) * 1.2;
+    this.vy = (Math.random() < 0.5 ? -1 : 1) * this.speed;
     this.prevY = this.y;
   }
   Elevator.prototype.update = function () {
@@ -120,9 +121,12 @@
     this.floorH = FLOOR_H;
     this.numFloors = NUM_FLOORS;
     this.docCount = docCount || 8;
-    this.elevators = SHAFTS.map(function (sx) { return new Elevator(sx); });
+    // Left shaft is the slow freight car; right shaft is the express.
+    var SHAFT_SPEED = [1.0, 2.1];
+    this.elevators = SHAFTS.map(function (sx, i) { return new Elevator(sx, SHAFT_SPEED[i]); });
     this.doors = [];
     this.staticSolids = [];
+    this.stairs = [];
     this.build();
 
     this.exitZone = { x: WIDTH / 2 - 40, y: WORLD_H - 34, w: 80, h: 34 };
@@ -171,6 +175,22 @@
                : i < DOC_COUNT + ENEMY_COUNT ? "enemy"
                : "plain";
       self.doors.push(new Door(slots[i].x, slots[i].floor, kind));
+    }
+
+    // Stairs between adjacent floors: press ↓ at the top / ↑ at the bottom.
+    // Positions avoid the elevator shafts and outer walls.
+    var PH = 28;
+    var stairSpecs = [
+      { floor: 0, x: 250 }, { floor: 1, x: 30 }, { floor: 2, x: 420 },
+      { floor: 3, x: 250 }, { floor: 4, x: 30 }
+    ];
+    for (var s = 0; s < stairSpecs.length; s++) {
+      var sp = stairSpecs[s];
+      self.stairs.push({
+        floor: sp.floor,
+        topX: sp.x, topY: surfaceY(sp.floor) - PH,
+        botX: sp.x + 34, botY: surfaceY(sp.floor + 1) - PH
+      });
     }
 
     this.totalDocs = DOC_COUNT;
@@ -236,6 +256,9 @@
     for (var d = 0; d < this.doors.length; d++) this.doors[d].draw(ctx);
     for (var e = 0; e < this.elevators.length; e++) this.elevators[e].draw(ctx);
 
+    // Stairs (drawn under the slabs' top edge, behind actors).
+    for (var st = 0; st < this.stairs.length; st++) this.drawStair(ctx, this.stairs[st]);
+
     // Floor slabs.
     ctx.fillStyle = "#39456b";
     for (var k = 0; k < this.staticSolids.length; k++) {
@@ -251,6 +274,24 @@
     ctx.fillStyle = "#eaffef";
     ctx.font = "10px 'Courier New', monospace";
     ctx.fillText("EXIT", this.exitZone.x + 26, this.exitZone.y + 20);
+  };
+
+  Level.prototype.drawStair = function (ctx, s) {
+    var x0 = s.topX, y0 = s.topY + 28;         // top landing (floor surface)
+    var x1 = s.botX + 16, y1 = s.botY + 28;    // bottom landing
+    var steps = 9;
+    for (var i = 0; i < steps; i++) {
+      var sx = x0 + (x1 - x0) * (i / steps);
+      var sy = y0 + (y1 - y0) * (i / steps);
+      var stepH = (y1 - y0) / steps;
+      ctx.fillStyle = "#2b3350";               // riser
+      ctx.fillRect(sx, sy, 16, stepH + 1);
+      ctx.fillStyle = "#48548a";               // tread edge
+      ctx.fillRect(sx, sy, 18, 3);
+    }
+    // Handrail.
+    ctx.strokeStyle = "#6b78ad"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x0 + 2, y0 - 16); ctx.lineTo(x1 + 2, y1 - 16); ctx.stroke();
   };
 
   global.Level = Level;
