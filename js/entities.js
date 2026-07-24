@@ -101,7 +101,7 @@
     this.invuln = 0;          // frames of spawn invulnerability
     this.animT = 0;           // walk-cycle timer
     this.muzzle = 0;          // frames the muzzle flash stays lit
-    this.mgTimer = 0;         // machine-gun power-up: frames remaining
+    this.mg = false;          // machine-gun power-up: held until hit
     this.armor = 0;           // bulletproof-vest hits remaining
   };
   Player.prototype.hurtBox = function () {
@@ -129,16 +129,15 @@
 
     // Machine gun: hold to auto-fire fast. Otherwise: one shot per press.
     if (this.shootCd > 0) this.shootCd--;
-    var wantShot = this.mgTimer > 0 ? input.held("shoot") : input.pressed("shoot");
+    var wantShot = this.mg ? input.held("shoot") : input.pressed("shoot");
     if (wantShot && this.shootCd === 0) {
       var by = this.y + (this.crouching ? 16 : 8);
       var bx = this.dir > 0 ? this.x + this.w : this.x - 6;
       bullets.push(new Bullet(bx, by, this.dir, true));
-      this.shootCd = this.mgTimer > 0 ? 5 : 12;
+      this.shootCd = this.mg ? 5 : 12;
       this.muzzle = 5;
       if (global.Sound) global.Sound.play("shoot");
     }
-    if (this.mgTimer > 0) this.mgTimer--;
 
     if (this.invuln > 0) this.invuln--;
     if (this.muzzle > 0) this.muzzle--;
@@ -196,7 +195,7 @@
       ctx.fillStyle = P.band;   px(ctx, x + 4, y + 3, 9, 1);
       // Outstretched gun arm — bulkier and steel-grey when machine-gunning.
       ctx.fillStyle = P.coat;   px(ctx, x + 11, y + 13, 4, 3);
-      if (this.mgTimer > 0) {
+      if (this.mg) {
         ctx.fillStyle = "#8a93a6"; px(ctx, x + 14, y + 12, 6, 5);
         ctx.fillStyle = "#3a3f4d"; px(ctx, x + 14, y + 16, 3, 2); // magazine
       } else {
@@ -204,7 +203,7 @@
       }
       if (this.muzzle > 0) {
         ctx.fillStyle = P.flash;
-        px(ctx, this.mgTimer > 0 ? x + 20 : x + 18, y + 12, 3, 5);
+        px(ctx, this.mg ? x + 20 : x + 18, y + 12, 3, 5);
       }
     }
     ctx.restore();

@@ -383,6 +383,7 @@
   function hitPlayer() {
     var p = game.player;
     if (p.invuln > 0) return false;
+    p.mg = false;               // taking any damage drops the machine gun
     if (p.armor > 0) {
       p.armor--;
       p.invuln = 45;
@@ -416,7 +417,7 @@
 
   function applyItem(type) {
     var p = game.player;
-    if (type === "machinegun") { p.mgTimer = 600; flash("MACHINE GUN!"); }
+    if (type === "machinegun") { p.mg = true; flash("MACHINE GUN!"); }
     else { p.armor = 3; flash("VEST x3"); }
     if (global.Sound) global.Sound.play("powerup");
     syncHud();
@@ -470,7 +471,7 @@
     if (hud.power) {
       var parts = [];
       var p = game.player;
-      if (p && p.mgTimer > 0) parts.push("🔫" + Math.ceil(p.mgTimer / 60));
+      if (p && p.mg) parts.push("🔫");
       if (p && p.armor > 0) parts.push("🛡" + p.armor);
       hud.power.textContent = parts.join(" ");
     }
