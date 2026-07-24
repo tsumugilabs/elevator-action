@@ -25,6 +25,16 @@
     power: document.getElementById("hud-power")
   };
 
+  // Optional custom art for the GUILTY cut. Drop your own licensed image at
+  // assets/guilty.png and it is used automatically; otherwise the built-in
+  // vector illustration is drawn. (Blocked by CSP in the single-file build,
+  // where it silently falls back.)
+  var guiltyImg = new Image();
+  var guiltyReady = false;
+  guiltyImg.onload = function () { guiltyReady = true; };
+  guiltyImg.onerror = function () { guiltyReady = false; };
+  guiltyImg.src = "assets/guilty.png";
+
   var STATE = { MENU: 0, PLAY: 1, DEAD: 2, WIN: 3, OVER: 4, STAGECLEAR: 5 };
 
   // Per-stage difficulty. `shooters`: how many enemies may fire —
@@ -693,6 +703,17 @@
     // Slight settle-in zoom.
     var zc = 1 + (1 - smooth(intro)) * 0.08;
     ctx.translate(W / 2, H / 2); ctx.scale(zc, zc); ctx.translate(-W / 2, -H / 2);
+
+    // Custom user-supplied art takes over the whole panel when present.
+    if (guiltyReady) {
+      ctx.fillStyle = "#000"; ctx.fillRect(-30, -30, W + 60, H + 60);
+      var isc = Math.max(W / guiltyImg.width, H / guiltyImg.height) * (1 + (1 - smooth(intro)) * 0.06);
+      var dw = guiltyImg.width * isc, dh = guiltyImg.height * isc;
+      ctx.drawImage(guiltyImg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      if (t < 6) { ctx.fillStyle = "rgba(255,255,255," + (1 - t / 6) * 0.55 + ")"; ctx.fillRect(-30, -30, W + 60, H + 60); }
+      ctx.restore();
+      return;
+    }
 
     // ---- Sky ----
     ctx.fillStyle = "#cbd1db"; ctx.fillRect(-30, -30, W + 60, H + 60);
