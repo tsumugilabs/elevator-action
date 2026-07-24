@@ -87,6 +87,7 @@
     stage: 0,
     pendingLoadout: null,   // loadout chosen on the stage-clear screen
     snipe: null,            // active OKB 13 sniper-kill animation
+    sniper: null,           // stage-4 enemy sniper hazard
     taunt: null,            // active continue taunt
     tauntTimer: 0,
     msg: "",
@@ -119,6 +120,11 @@
     game.docs = 0;
     game.camY = 0;
     game.snipe = null;
+    // Stage 4 introduces an off-screen enemy sniper that telegraphs shots at
+    // your last position — a gentle primer for OKB 13 arriving in stage 5.
+    game.sniper = game.stage === 3
+      ? { aiming: false, cooldown: 240, target: null, t: 0, dur: 132 }
+      : null;
     game.state = STATE.PLAY;
     game.spawnTimer = 240;                  // first director spawn ~4s in
 
@@ -313,13 +319,20 @@
     }
 
     for (var en = 0; en < game.enemies.length; en++) {
-      game.enemies[en].update(player, solids, game.bullets);
-      if (game.enemies[en].canFall) rideElevators(game.enemies[en], false);
+      var foe = game.enemies[en];
+      if (foe.onStair) {
+        advanceStair(foe);
+      } else {
+        foe.update(player, solids, game.bullets);
+        if (foe.canFall) rideElevators(foe, false);
+        if (foe.useStairs) tryEnemyStairs(foe, level, player);
+      }
     }
 
     updateBullets();
     resolveHits();
     updateItems(player);
+    if (game.sniper) updateSniper(player);
     updateMines();
     updateBlasts();
 
@@ -370,6 +383,7 @@
     } else {
       e.canShoot = currentShooters() < c.shooters;
     }
+    e.useStairs = game.stage === LAST_STAGE;   // final stage: agents take stairs
     game.enemies.push(e);
   }
 
@@ -621,6 +635,72 @@
     }
   }
 
+  /** Final-stage agents take stairs toward the player's floor when they meet one. */
+  function tryEnemyStairs(foe, level, player) {
+    if (foe.stairCd > 0) { foe.stairCd--; return; }
+    if (!foe.onGround) return;
+    var ecx = foe.x + foe.w / 2, efeet = foe.y + foe.h;
+    var below = player.y > foe.y + 30, above = player.y < foe.y - 30;
+    if (!below && !above) return;
+    for (var i = 0; i < level.stairs.length; i++) {
+      var s = level.stairs[i];
+      if (below && Math.abs(efeet - (s.topY + foe.h)) < 8 &&
+          Math.abs(ecx - (s.topX + foe.w / 2)) < 16) {
+        foe.onStair = { fromX: s.topX, fromY: s.topY, toX: s.botX, toY: s.botY, t: 0, dur: 26 };
+        foe.stairCd = 60; return;
+      }
+      if (above && Math.abs(efeet - (s.botY + foe.h)) < 8 &&
+          Math.abs(ecx - (s.botX + foe.w / 2)) < 16) {
+        foe.onStair = { fromX: s.botX, fromY: s.botY, toX: s.topX, toY: s.topY, t: 0, dur: 26 };
+        foe.stairCd = 60; return;
+      }
+    }
+  }
+
+  // ---- Enemy sniper hazard (stage 4) -------------------------------------
+
+  function updateSniper(player) {
+    var sn = game.sniper;
+    if (!sn.aiming) {
+      if (--sn.cooldown <= 0) {
+        sn.aiming = true; sn.t = 0;
+        sn.target = { x: player.x + player.w / 2, y: player.y + player.h / 2 };
+        if (global.Sound) global.Sound.play("lock");
+      }
+      return;
+    }
+    sn.t++;
+    if (sn.t >= sn.dur) {
+      sn.aiming = false;
+      sn.cooldown = 300 + Math.floor(Math.random() * 240);   // 5–9s between shots
+      if (global.Sound) global.Sound.play("snipe");
+      game.blasts.push({ x: sn.target.x, y: sn.target.y, r: 6, max: 20, t: 0 });
+      var p = game.player;
+      var dx = (p.x + p.w / 2) - sn.target.x, dy = (p.y + p.h / 2) - sn.target.y;
+      if (p.invuln === 0 && dx * dx + dy * dy <= 18 * 18) hitPlayer();  // only if you lingered
+    }
+  }
+
+  /** Reticle closing onto the sniper's marked spot; flashes red before firing. */
+  function drawSniperReticle(ctx, sn) {
+    var tx = sn.target.x, ty = sn.target.y;
+    var u = clamp(sn.t / sn.dur, 0, 1);
+    var r = 58 - 44 * u;
+    var firing = sn.t >= sn.dur - 16;
+    var col = firing
+      ? (Math.floor(sn.t / 3) % 2 ? "#ff2020" : "#ffd0d0")
+      : "rgba(255,90,90,0.85)";
+    ctx.strokeStyle = col; ctx.lineWidth = firing ? 3 : 2;
+    ctx.beginPath(); ctx.arc(tx, ty, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(tx - r - 6, ty); ctx.lineTo(tx - r + 9, ty);
+    ctx.moveTo(tx + r - 9, ty); ctx.lineTo(tx + r + 6, ty);
+    ctx.moveTo(tx, ty - r - 6); ctx.lineTo(tx, ty - r + 9);
+    ctx.moveTo(tx, ty + r - 9); ctx.lineTo(tx, ty + r + 6);
+    ctx.stroke();
+    ctx.fillStyle = col; ctx.fillRect(tx - 2, ty - 2, 4, 4);
+  }
+
   // ---- OKB 13 (tap-to-snipe) ---------------------------------------------
 
   // ~3s dramatic sequence + a ~0.75s afterglow: slow zoom, lock-on,
@@ -706,6 +786,7 @@
     for (var b = 0; b < game.bullets.length; b++) game.bullets[b].draw(ctx);
     if (game.state === STATE.PLAY) game.player.draw(ctx);
     drawBlasts(ctx);
+    if (game.sniper && game.sniper.aiming) drawSniperReticle(ctx, game.sniper);
 
     ctx.restore();
 

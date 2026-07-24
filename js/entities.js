@@ -241,6 +241,9 @@
     this.canChase = true;   // follow the player vs pure wander
     this.canShoot = true;   // may fire bullets
     this.canFall = true;    // may leave its floor (drop through gaps / ride)
+    this.useStairs = false; // may traverse stairs to change floors
+    this.onStair = null;    // active stair traversal, if any
+    this.stairCd = 0;       // cooldown between stair uses
   }
   Enemy.prototype.update = function (player, solids, bullets) {
     // Periodically re-roll behavior: ~50% chase, ~50% wander (chase only if

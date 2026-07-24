@@ -192,6 +192,12 @@
         botX: sp.x + 34, botY: surfaceY(sp.floor + 1) - PH
       });
     }
+    // Stair from the lowest floor down to the basement / exit level.
+    self.stairs.push({
+      floor: NUM_FLOORS - 1,
+      topX: 440, topY: surfaceY(NUM_FLOORS - 1) - PH,
+      botX: 440 + 34, botY: (WORLD_H - SLAB_H) - PH
+    });
 
     this.totalDocs = DOC_COUNT;
   };
