@@ -89,7 +89,31 @@ canvas#game {
   background: #05070d;
   border: 2px solid #2a3350;
   border-radius: 4px;
+  touch-action: none;
 }
+
+/* Stage-clear loadout picker. */
+.loadout-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  max-width: 320px;
+  margin-top: 4px;
+}
+.loadout {
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  padding: 12px 14px;
+  color: var(--text);
+  background: #1b2138;
+  border: 1px solid #3a456a;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.loadout:hover { transform: translateY(-1px); background: #232a48; }
+.loadout.okb { background: #3a1020; border-color: #b0405a; color: #ffd6d6; }
+.loadout.none { background: transparent; color: var(--muted); }
 
 .overlay {
   position: absolute;

@@ -50,9 +50,11 @@
     camY: 0,
     score: 0,
     hi: Number(localStorage.getItem("ea_hi") || 0),
-    lives: 3,
+    lives: 2,
     docs: 0,
     stage: 0,
+    pendingLoadout: null,   // loadout chosen on the stage-clear screen
+    snipe: null,            // active OKB 13 sniper-kill animation
     msg: "",
     msgTimer: 0,
     spawnTimer: 0        // spawn-director countdown
@@ -60,11 +62,12 @@
 
   function cfg() { return STAGES[game.stage]; }
 
-  // Start a fresh run at stage 1.
+  // Start a fresh run at stage 1. Two spare lives — the 3rd hit ends the run.
   function startGame() {
     game.score = 0;
-    game.lives = 3;
+    game.lives = 2;
     game.stage = 0;
+    game.pendingLoadout = null;
     if (global.Sound) global.Sound.resume();
     loadStage();
   }
@@ -79,8 +82,16 @@
     game.items = [];
     game.docs = 0;
     game.camY = 0;
+    game.snipe = null;
     game.state = STATE.PLAY;
     game.spawnTimer = 240;                  // first director spawn ~4s in
+
+    // Apply the loadout chosen on the previous stage-clear screen.
+    if (game.pendingLoadout === "machinegun") game.player.mg = true;
+    else if (game.pendingLoadout === "vest") game.player.armor = 3;
+    else if (game.pendingLoadout === "okb") game.player.okb = 3;
+    game.pendingLoadout = null;
+
     overlay.classList.add("hidden");
     hud.docsTotal.textContent = game.level.totalDocs;
     flash("STAGE " + (game.stage + 1) + " — " + c.name);
@@ -88,25 +99,16 @@
     syncHud();
   }
 
-  function respawn() {
-    var p = game.player;
-    p.reset(p.spawnX, p.spawnY);
-    p.invuln = 90;
-    game.bullets = game.bullets.filter(function (b) { return b.fromPlayer; });
-    game.state = STATE.PLAY;
-  }
-
+  // A hit that isn't absorbed by a vest: lose a life, or end the run on the
+  // final hit. The player keeps playing in place (brief invulnerability).
   function loseLife() {
+    if (game.lives <= 0) { endGame(false); return; }
     game.lives--;
+    game.player.invuln = 90;
+    game.player.mg = false;
+    flash("MISS");
+    if (global.Sound) global.Sound.play("miss");
     syncHud();
-    if (game.lives <= 0) {
-      endGame(false);
-    } else {
-      flash("MISS");
-      if (global.Sound) global.Sound.play("miss");
-      game.state = STATE.DEAD;
-      game.deadTimer = 60;
-    }
   }
 
   // Cleared the exit: advance to the next stage, or win the whole game.
@@ -120,13 +122,28 @@
     if (game.score > game.hi) { game.hi = game.score; localStorage.setItem("ea_hi", String(game.hi)); }
     if (global.Sound) { global.Sound.stopMusic(); global.Sound.play("win"); }
     syncHud();
+
+    // Loadout selection for the next stage. OKB 13 unlocks entering stage 5+.
+    var next = game.stage + 1;                 // 0-indexed next stage
+    var okbEligible = next >= 4;
+    var choices =
+      '<button class="loadout" data-load="machinegun">🔫 マシンガン</button>' +
+      '<button class="loadout" data-load="vest">🛡 防弾チョッキ</button>' +
+      (okbEligible ? '<button class="loadout okb" data-load="okb">🎯 OKB 13</button>' : '') +
+      '<button class="loadout none" data-load="none">なし</button>';
     overlay.classList.remove("hidden");
     overlay.innerHTML =
       '<h1>STAGE ' + (game.stage + 1) + ' CLEAR</h1>' +
-      '<p class="subtitle">SCORE ' + game.score + '<br>NEXT: STAGE ' + (game.stage + 2) +
-      ' — ' + STAGES[game.stage + 1].name + '</p>' +
-      '<button id="next-btn">NEXT STAGE</button>';
-    document.getElementById("next-btn").addEventListener("click", nextStage);
+      '<p class="subtitle">SCORE ' + game.score + '<br>NEXT: STAGE ' + (next + 1) +
+      ' — ' + STAGES[next].name + '<br>装備を選択（次ステージ開始）</p>' +
+      '<div class="loadout-grid">' + choices + '</div>';
+    var btns = overlay.querySelectorAll(".loadout");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener("click", function () {
+        game.pendingLoadout = this.getAttribute("data-load");
+        nextStage();
+      });
+    }
   }
 
   function nextStage() {
@@ -160,10 +177,8 @@
   function update() {
     if (game.msgTimer > 0) game.msgTimer--;
 
-    if (game.state === STATE.DEAD) {
-      if (--game.deadTimer <= 0) respawn();
-      return;
-    }
+    // OKB 13: time freezes during the sniper-kill sequence.
+    if (game.snipe) { updateSnipe(); return; }
     if (game.state !== STATE.PLAY) return;
 
     var level = game.level;
@@ -231,8 +246,14 @@
       return;
     }
 
-    // Fell out of the world (shouldn't happen, but safe-guard).
-    if (player.y > level.height + 60) loseLife();
+    // Fell out of the world: cost a life and return to the stage start.
+    if (player.y > level.height + 60) {
+      loseLife();
+      if (game.state === STATE.PLAY) {
+        player.x = player.spawnX; player.y = player.spawnY;
+        player.vx = 0; player.vy = 0;
+      }
+    }
 
     updateCamera();
     syncHud();
@@ -359,7 +380,7 @@
         }
       } else if (player.invuln === 0 && Entities.overlaps(bl, player.hurtBox())) {
         bl.dead = true;
-        if (hitPlayer()) return;      // returns true if it cost a life (respawn)
+        if (hitPlayer()) return;      // returns true if it cost a life
       }
     }
 
@@ -423,6 +444,49 @@
     syncHud();
   }
 
+  // ---- OKB 13 (tap-to-snipe) ---------------------------------------------
+
+  var SNIPE = { zoom: 22, aim: 38, fire: 16 };
+
+  /** A tap on the play-field: if OKB 13 is loaded and an agent is under the
+   *  pointer, begin the dramatic sniper-kill sequence. */
+  function trySnipe(clientX, clientY) {
+    if (game.state !== STATE.PLAY || game.snipe) return;
+    var p = game.player;
+    if (!p || p.okb <= 0) return;
+    var rect = canvas.getBoundingClientRect();
+    var wx = (clientX - rect.left) * (canvas.width / rect.width);
+    var wy = (clientY - rect.top) * (canvas.height / rect.height) + game.camY;
+    for (var i = 0; i < game.enemies.length; i++) {
+      var e = game.enemies[i];
+      if (wx >= e.x - 4 && wx <= e.x + e.w + 4 && wy >= e.y - 4 && wy <= e.y + e.h + 4) {
+        game.snipe = { enemy: e, phase: "zoom", t: 0 };
+        if (global.Sound) global.Sound.play("lock");
+        return;
+      }
+    }
+  }
+
+  function updateSnipe() {
+    var s = game.snipe;
+    s.t++;
+    if (s.phase === "zoom" && s.t >= SNIPE.zoom) {
+      s.phase = "aim"; s.t = 0;
+      if (global.Sound) global.Sound.play("lock");
+    } else if (s.phase === "aim" && s.t >= SNIPE.aim) {
+      s.phase = "fire"; s.t = 0;
+      if (global.Sound) global.Sound.play("snipe");
+    } else if (s.phase === "fire" && s.t >= SNIPE.fire) {
+      s.enemy.dead = true;
+      game.enemies = game.enemies.filter(function (x) { return !x.dead; });
+      addScore(1500);
+      if (global.Sound) global.Sound.play("explode");
+      game.player.okb--;
+      game.snipe = null;
+      syncHud();
+    }
+  }
+
   function updateCamera() {
     var target = game.player.y + game.player.h / 2 - C.VIEW_H / 2;
     var maxY = game.level.height - C.VIEW_H;
@@ -443,13 +507,78 @@
     for (var it = 0; it < game.items.length; it++) game.items[it].draw(ctx);
     for (var e = 0; e < game.enemies.length; e++) game.enemies[e].draw(ctx);
     for (var b = 0; b < game.bullets.length; b++) game.bullets[b].draw(ctx);
-    if (game.state === STATE.PLAY || game.state === STATE.DEAD) {
-      game.player.draw(ctx);
-    }
+    if (game.state === STATE.PLAY) game.player.draw(ctx);
 
     ctx.restore();
 
+    if (game.snipe) drawScope(game.snipe);
     if (game.msgTimer > 0) drawFlash();
+  }
+
+  /** Dramatic OKB 13 sniper scope, drawn in screen space over the frozen world. */
+  function drawScope(s) {
+    var W = canvas.width, H = canvas.height;
+    var e = s.enemy;
+    var tx = e.x + e.w / 2;
+    var ty = e.y + 6 - game.camY;              // aim at the head
+    if (s.phase === "aim") { tx += Math.sin(s.t / 5) * 3; ty += Math.cos(s.t / 6) * 2; }
+
+    var full = Math.max(W, H) * 1.1, rMin = 82;
+    var r = s.phase === "zoom" ? full - (full - rMin) * (s.t / SNIPE.zoom) : rMin;
+
+    // Dark vignette with a circular hole punched at the target.
+    ctx.save();
+    ctx.fillStyle = "rgba(2,3,8,0.92)";
+    ctx.beginPath();
+    ctx.rect(0, 0, W, H);
+    ctx.arc(tx, ty, r, 0, Math.PI * 2, true);
+    ctx.fill("evenodd");
+    // Scope rings.
+    ctx.lineWidth = 10; ctx.strokeStyle = "#04050a";
+    ctx.beginPath(); ctx.arc(tx, ty, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#2a3350";
+    ctx.beginPath(); ctx.arc(tx, ty, r - 5, 0, Math.PI * 2); ctx.stroke();
+
+    // Reticle, clipped to the lens.
+    ctx.save();
+    ctx.beginPath(); ctx.arc(tx, ty, r - 5, 0, Math.PI * 2); ctx.clip();
+    ctx.strokeStyle = "rgba(230,70,70,0.85)"; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(tx - r, ty); ctx.lineTo(tx + r, ty);
+    ctx.moveTo(tx, ty - r); ctx.lineTo(tx, ty + r);
+    ctx.stroke();
+    for (var k = -5; k <= 5; k++) {
+      if (!k) continue;
+      ctx.beginPath();
+      ctx.moveTo(tx + k * 9, ty - 3); ctx.lineTo(tx + k * 9, ty + 3);
+      ctx.moveTo(tx - 3, ty + k * 9); ctx.lineTo(tx + 3, ty + k * 9);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "rgba(255,50,50,0.95)"; ctx.fillRect(tx - 2, ty - 2, 4, 4);
+    ctx.restore();
+
+    ctx.textAlign = "center";
+    if (s.phase === "zoom" || s.phase === "aim") {
+      ctx.fillStyle = "#ff5a5a"; ctx.font = "bold 13px 'Courier New', monospace";
+      ctx.fillText("O K B  1 3", tx, ty - r + 20);
+      if (s.phase === "aim" && Math.floor(s.t / 8) % 2 === 0) {
+        ctx.fillStyle = "#ffd166"; ctx.font = "bold 15px 'Courier New', monospace";
+        ctx.fillText("TARGET LOCKED", W / 2, H - 34);
+      }
+    }
+    if (s.phase === "fire") {
+      var a = 1 - s.t / SNIPE.fire;
+      ctx.fillStyle = "rgba(255,255,255," + (a * 0.9) + ")"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#ff2a2a";
+      for (var b = 0; b < 10; b++) {
+        var ang = b * Math.PI / 5, len = 6 + s.t * 2.4;
+        ctx.fillRect(tx + Math.cos(ang) * len - 2, ty + Math.sin(ang) * len - 2, 4, 4);
+      }
+      ctx.fillStyle = "#fff"; ctx.font = "bold 22px 'Courier New', monospace";
+      ctx.fillText("HEADSHOT!", W / 2, 52);
+    }
+    ctx.textAlign = "left";
+    ctx.restore();
   }
 
   function drawFlash() {
@@ -473,6 +602,7 @@
       var p = game.player;
       if (p && p.mg) parts.push("🔫");
       if (p && p.armor > 0) parts.push("🛡" + p.armor);
+      if (p && p.okb > 0) parts.push("🎯" + p.okb);
       hud.power.textContent = parts.join(" ");
     }
   }
@@ -504,6 +634,12 @@
       else if (game.state !== STATE.PLAY) startGame();
     }
     if (e.code === "KeyM") toggleSound();
+  });
+
+  // Tap/click the play-field to fire OKB 13 at an agent under the pointer.
+  canvas.addEventListener("pointerdown", function (e) {
+    e.preventDefault();
+    trySnipe(e.clientX, e.clientY);
   });
 
   // Sound on/off toggle (button + M key).

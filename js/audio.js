@@ -92,7 +92,10 @@
     over:    function () { arpeggio([392, 330, 262, 196], 0.24, "sawtooth"); },
     powerup: function () { arpeggio([784, 988, 1319, 1568], 0.08, "square"); },
     block:   function () { blip({ type: "square", f0: 220, f1: 140, dur: 0.12, gain: 0.24 });
-                           noiseBurst(0.08, 0.18); }
+                           noiseBurst(0.08, 0.18); },
+    lock:    function () { blip({ type: "square", f0: 1320, dur: 0.05, gain: 0.14 }); },
+    snipe:   function () { noiseBurst(0.14, 0.42);
+                           blip({ type: "sawtooth", f0: 160, f1: 45, dur: 0.4, gain: 0.32 }); }
   };
 
   function play(name) { if (SFX[name]) SFX[name](); }

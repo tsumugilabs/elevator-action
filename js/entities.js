@@ -103,6 +103,7 @@
     this.muzzle = 0;          // frames the muzzle flash stays lit
     this.mg = false;          // machine-gun power-up: held until hit
     this.armor = 0;           // bulletproof-vest hits remaining
+    this.okb = 0;             // OKB 13 sniper rounds remaining
   };
   Player.prototype.hurtBox = function () {
     // Crouching shrinks the vertical hurt box.
